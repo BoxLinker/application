@@ -1,21 +1,22 @@
 package manager
 
 import (
-	"github.com/go-xorm/xorm"
-	appModels "github.com/BoxLinker/boxlinker-api/controller/models/application"
+	"encoding/json"
+	"fmt"
+
+	appModels "github.com/BoxLinker/application/controller/models"
+	"github.com/BoxLinker/application/modules/monitor"
+	"github.com/BoxLinker/boxlinker-api"
+	"github.com/BoxLinker/boxlinker-api/controller/models"
 	userModels "github.com/BoxLinker/boxlinker-api/controller/models/user"
 	"github.com/Sirupsen/logrus"
-	"k8s.io/client-go/kubernetes"
+	"github.com/go-xorm/xorm"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	apiv1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"fmt"
-	"github.com/BoxLinker/boxlinker-api/controller/models"
+	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"github.com/BoxLinker/boxlinker-api"
-	"encoding/json"
-	"github.com/BoxLinker/boxlinker-api/modules/monitor"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 type ApplicationManager interface {
@@ -27,18 +28,17 @@ type ApplicationManager interface {
 	DeleteVolume(namespace, name string) error
 	CreateVolume(namespace string, volume *models.Volume) (*apiv1.PersistentVolumeClaim, error)
 	QueryVolume(namespace string, pc boxlinker.PageConfig) ([]apiv1.PersistentVolumeClaim, error)
-	GetUserByName(name string) (*userModels.User)
-
+	GetUserByName(name string) *userModels.User
 }
 
 type DefaultApplicationManager struct {
 	DefaultManager
-	engine *xorm.Engine
-	clientSet *kubernetes.Clientset
+	engine            *xorm.Engine
+	clientSet         *kubernetes.Clientset
 	prometheusMonitor *monitor.PrometheusMonitor
 }
 
-func (m *DefaultApplicationManager) GetUserByName(name string) (*userModels.User) {
+func (m *DefaultApplicationManager) GetUserByName(name string) *userModels.User {
 	user := &userModels.User{
 		Name: name,
 	}
@@ -53,9 +53,9 @@ func (m *DefaultApplicationManager) GetUserByName(name string) (*userModels.User
 
 func (m *DefaultApplicationManager) GetServiceByName(namespace, svcName string) (bool, error, *apiv1.Service, *extv1beta1.Ingress, *appsv1beta1.Deployment) {
 	var (
-		err error
-		svc *apiv1.Service
-		ing *extv1beta1.Ingress
+		err    error
+		svc    *apiv1.Service
+		ing    *extv1beta1.Ingress
 		deploy *appsv1beta1.Deployment
 	)
 	if svc, err = m.clientSet.CoreV1().Services(namespace).Get(svcName, metav1.GetOptions{}); err != nil {
@@ -88,7 +88,7 @@ func (m *DefaultApplicationManager) QueryVolume(namespace string, pc boxlinker.P
 		end = l
 	} else {
 		start = pc.Offset()
-		if pc.Offset() + pc.Limit() >= l {
+		if pc.Offset()+pc.Limit() >= l {
 			end = l
 		} else {
 			end = pc.Offset() + pc.Limit()
@@ -152,8 +152,8 @@ func (m *DefaultApplicationManager) SyncPodConfigure(pcs []*appModels.PodConfigu
 
 func NewApplicationManager(engine *xorm.Engine, clientSet *kubernetes.Clientset, pm *monitor.PrometheusMonitor) (ApplicationManager, error) {
 	return &DefaultApplicationManager{
-		engine: engine,
-		clientSet: clientSet,
+		engine:            engine,
+		clientSet:         clientSet,
 		prometheusMonitor: pm,
 	}, nil
 }

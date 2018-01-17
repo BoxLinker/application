@@ -2,8 +2,9 @@ package application
 
 import (
 	"net/http"
+
+	"github.com/BoxLinker/application/controller/models"
 	"github.com/BoxLinker/boxlinker-api"
-	"github.com/BoxLinker/boxlinker-api/controller/models"
 	"github.com/gorilla/mux"
 	apiv1 "k8s.io/api/core/v1"
 )
@@ -13,7 +14,7 @@ type VolumeForm struct {
 	Size string `json:"size"`
 }
 
-func (a *Api) CreateVolume(w http.ResponseWriter, r *http.Request){
+func (a *Api) CreateVolume(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	form := &VolumeForm{}
 	if err := boxlinker.ReadRequestBody(r, form); err != nil {
@@ -30,7 +31,7 @@ func (a *Api) CreateVolume(w http.ResponseWriter, r *http.Request){
 	}
 	boxlinker.Resp(w, boxlinker.STATUS_OK, claim)
 }
-func (a *Api) DeleteVolume(w http.ResponseWriter, r *http.Request){
+func (a *Api) DeleteVolume(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	name := mux.Vars(r)["name"]
 	if err := a.manager.DeleteVolume(user.Name, name); err != nil {
@@ -39,7 +40,7 @@ func (a *Api) DeleteVolume(w http.ResponseWriter, r *http.Request){
 	}
 	boxlinker.Resp(w, boxlinker.STATUS_OK, nil)
 }
-func (a *Api) QueryVolume(w http.ResponseWriter, r *http.Request){
+func (a *Api) QueryVolume(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	pc := boxlinker.ParsePageConfig(r)
 	claims, err := a.manager.QueryVolume(user.Name, pc)

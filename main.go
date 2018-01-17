@@ -7,11 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	api "github.com/BoxLinker/boxlinker-api/api/v1/application"
-	manager "github.com/BoxLinker/boxlinker-api/controller/manager"
-	"github.com/BoxLinker/boxlinker-api/controller/models"
-	applicationModels "github.com/BoxLinker/boxlinker-api/controller/models/application"
-	"github.com/BoxLinker/boxlinker-api/modules/monitor"
+	"github.com/BoxLinker/application/controller/manager"
+	"github.com/BoxLinker/application/controller/models"
+	"github.com/BoxLinker/application/modules/monitor"
 	"github.com/Sirupsen/logrus"
 	"github.com/urfave/cli"
 	"k8s.io/client-go/kubernetes"
@@ -107,7 +105,7 @@ func action(c *cli.Context) error {
 		Name:     config.DB.Name,
 		Host:     config.DB.Host,
 		Port:     config.DB.Port,
-	}, applicationModels.Tables())
+	}, models.Tables())
 	if err != nil {
 		return fmt.Errorf("new db engine err: %v", err)
 	}

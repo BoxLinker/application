@@ -1,24 +1,25 @@
 package es
 
 import (
-	"io"
-	"time"
-	"sync"
 	"bytes"
-	"fmt"
 	"errors"
-	"github.com/BoxLinker/boxlinker-api/modules/logs"
+	"fmt"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/BoxLinker/application/modules/logs"
 )
 
 const (
-	readThrottle = time.Second * 3
+	readThrottle  = time.Second * 3
 	writeThrottle = time.Second * 5
 )
 
 type Entity struct {
-	Log 		string 			`json:"log"`
-	Kubernetes 	map[string]interface{} 	`json:"kubernetes"`
-	Timestamp 	string 			`json:"@timestamp"`
+	Log        string                 `json:"log"`
+	Kubernetes map[string]interface{} `json:"kubernetes"`
+	Timestamp  string                 `json:"@timestamp"`
 }
 
 type logger struct {
@@ -41,9 +42,9 @@ func (l *logger) Create(name string) (io.Writer, error) {
 
 func (l *logger) Open(name string) (io.Reader, error) {
 	r := &Reader{
-		l: l,
+		l:        l,
 		throttle: time.Tick(readThrottle),
-		closed: false,
+		closed:   false,
 	}
 	go r.start()
 	return r, nil
@@ -60,11 +61,11 @@ func (w *writer) Close() error {
 type Reader struct {
 	l *logger
 	io.ReadCloser
-	err error
+	err      error
 	throttle <-chan time.Time
-	b lockingBuffer
-	pos int64
-	closed bool
+	b        lockingBuffer
+	pos      int64
+	closed   bool
 }
 
 func (r *Reader) Close() error {
@@ -107,7 +108,6 @@ func (r *Reader) Read(b []byte) (int, error) {
 	}
 	return r.b.Read(b)
 }
-
 
 type lockingBuffer struct {
 	sync.Mutex

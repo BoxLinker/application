@@ -1,13 +1,14 @@
-package application
+package models
 
 import (
-	"github.com/go-xorm/xorm"
 	"time"
+
+	"github.com/go-xorm/xorm"
 )
 
 type PodConfigure struct {
 	Memory string `xorm:"pk NOT NULL"`
-	CPU string `xorm:"pk NOT NULL"`
+	CPU    string `xorm:"pk NOT NULL"`
 
 	Created     time.Time `xorm:"-"`
 	CreatedUnix int64
@@ -35,8 +36,8 @@ func (me *PodConfigure) AfterSet(colName string, _ xorm.Cell) {
 
 func (me *PodConfigure) APIJson() map[string]interface{} {
 	return map[string]interface{}{
-		"memory": me.Memory,
-		"cpu": me.CPU,
+		"memory":  me.Memory,
+		"cpu":     me.CPU,
 		"created": time.Unix(me.CreatedUnix, 0).Format("2006-01-02"),
 		"updated": time.Unix(me.UpdatedUnix, 0).Format("2006-01-02"),
 	}
