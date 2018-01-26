@@ -1,43 +1,43 @@
-package application
+package api
 
 import (
-	"net/http"
-	"github.com/gorilla/mux"
 	"fmt"
-	"github.com/BoxLinker/boxlinker-api"
+	"net/http"
 	"time"
-	"github.com/BoxLinker/boxlinker-api/modules/monitor"
+
+	"github.com/BoxLinker/application/modules/monitor"
+	"github.com/cabernety/gopkg/httplib"
+	"github.com/gorilla/mux"
 )
 
-type rResult struct{
-	Result [][]interface{}	`json:"result"`
-	Err string `json:"err"`
+type rResult struct {
+	Result [][]interface{} `json:"result"`
+	Err    string          `json:"err"`
 }
 
 func (a *Api) Monitor(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	serviceName := mux.Vars(r)["serviceName"]
-	start := boxlinker.GetQueryParam(r, "start")
-	end := boxlinker.GetQueryParam(r, "end")
-	step := boxlinker.GetQueryParam(r, "step")
+	start := httplib.GetQueryParam(r, "start")
+	end := httplib.GetQueryParam(r, "end")
+	step := httplib.GetQueryParam(r, "step")
 
 	if _, err := time.Parse("2006-01-02T15:04:05.000Z", start); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_PARAM_ERR, nil, "start param err")
+		httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "start param err")
 		return
 	}
 	if _, err := time.Parse("2006-01-02T15:04:05.000Z", end); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_PARAM_ERR, nil, "end param err")
+		httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "end param err")
 		return
 	}
 	monitorOps := &monitor.Options{
 		Start: start,
-		End: end,
-		Step: step,
+		End:   end,
+		Step:  step,
 	}
 	output := make(map[string]*rResult)
 
-
-	if re, err := a.prometheusMonitor.Query(fmt.Sprintf("sum(container_memory_usage_bytes{container_name=\"%s\",namespace=\"%s\"}) by (container_name)", serviceName, user.Name), monitorOps); err != nil {
+	if re, err := a.prometheusMonitor.Query(fmt.Sprintf("sum(container_memory_usage_bytes{container_name=~\"%s-.*\",namespace=\"%s\"}) by (container_name)", serviceName, user.Name), monitorOps); err != nil {
 		output["memory"] = &rResult{
 			Err: err.Error(),
 		}
@@ -48,7 +48,7 @@ func (a *Api) Monitor(w http.ResponseWriter, r *http.Request) {
 	}
 	if re, err := a.prometheusMonitor.Query(fmt.Sprintf(
 		"sum(rate(container_network_receive_bytes_total{pod_name=~\"%s-.*\",namespace=\"%s\",interface=\"eth0\"}[1h])) by (container_name)",
-			serviceName, user.Name), monitorOps); err != nil {
+		serviceName, user.Name), monitorOps); err != nil {
 		output["networkReceive"] = &rResult{
 			Err: err.Error(),
 		}
@@ -59,7 +59,7 @@ func (a *Api) Monitor(w http.ResponseWriter, r *http.Request) {
 	}
 	if re, err := a.prometheusMonitor.Query(fmt.Sprintf(
 		"sum(rate(container_network_transmit_bytes_total{pod_name=~\"%s-.*\",namespace=\"%s\",interface=\"eth0\"}[1h])) by (container_name)",
-			serviceName, user.Name), monitorOps); err != nil {
+		serviceName, user.Name), monitorOps); err != nil {
 		output["networkTransmit"] = &rResult{
 			Err: err.Error(),
 		}
@@ -69,6 +69,6 @@ func (a *Api) Monitor(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	boxlinker.Resp(w, boxlinker.STATUS_OK, output)
+	httplib.Resp(w, httplib.STATUS_OK, output)
 
 }

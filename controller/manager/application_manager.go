@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/BoxLinker/application/controller/models"
 	appModels "github.com/BoxLinker/application/controller/models"
 	"github.com/BoxLinker/application/modules/monitor"
-	"github.com/BoxLinker/boxlinker-api"
-	"github.com/BoxLinker/boxlinker-api/controller/models"
 	userModels "github.com/BoxLinker/boxlinker-api/controller/models/user"
 	"github.com/Sirupsen/logrus"
+	"github.com/cabernety/gopkg/httplib"
 	"github.com/go-xorm/xorm"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	apiv1 "k8s.io/api/core/v1"
@@ -27,7 +27,7 @@ type ApplicationManager interface {
 	GetVolumeByName(namespace, name string) (pvc *apiv1.PersistentVolumeClaim, err error)
 	DeleteVolume(namespace, name string) error
 	CreateVolume(namespace string, volume *models.Volume) (*apiv1.PersistentVolumeClaim, error)
-	QueryVolume(namespace string, pc boxlinker.PageConfig) ([]apiv1.PersistentVolumeClaim, error)
+	QueryVolume(namespace string, pc httplib.PageConfig) ([]apiv1.PersistentVolumeClaim, error)
 	GetUserByName(name string) *userModels.User
 }
 
@@ -70,7 +70,7 @@ func (m *DefaultApplicationManager) GetServiceByName(namespace, svcName string) 
 	return true, nil, svc, ing, deploy
 }
 
-func (m *DefaultApplicationManager) QueryVolume(namespace string, pc boxlinker.PageConfig) ([]apiv1.PersistentVolumeClaim, error) {
+func (m *DefaultApplicationManager) QueryVolume(namespace string, pc httplib.PageConfig) ([]apiv1.PersistentVolumeClaim, error) {
 	claims, err := m.clientSet.CoreV1().PersistentVolumeClaims(namespace).List(metav1.ListOptions{})
 	if err != nil {
 		return nil, err

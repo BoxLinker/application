@@ -1,10 +1,10 @@
-package application
+package api
 
 import (
 	"net/http"
 
 	"github.com/BoxLinker/application/controller/models"
-	"github.com/BoxLinker/boxlinker-api"
+	"github.com/cabernety/gopkg/httplib"
 	"github.com/gorilla/mux"
 	apiv1 "k8s.io/api/core/v1"
 )
@@ -17,8 +17,8 @@ type VolumeForm struct {
 func (a *Api) CreateVolume(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	form := &VolumeForm{}
-	if err := boxlinker.ReadRequestBody(r, form); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
 		return
 	}
 	claim, err := a.manager.CreateVolume(user.Name, &models.Volume{
@@ -26,26 +26,26 @@ func (a *Api) CreateVolume(w http.ResponseWriter, r *http.Request) {
 		Size: form.Size,
 	})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_OK, claim)
+	httplib.Resp(w, httplib.STATUS_OK, claim)
 }
 func (a *Api) DeleteVolume(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	name := mux.Vars(r)["name"]
 	if err := a.manager.DeleteVolume(user.Name, name); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_OK, nil)
+	httplib.Resp(w, httplib.STATUS_OK, nil)
 }
 func (a *Api) QueryVolume(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
-	pc := boxlinker.ParsePageConfig(r)
+	pc := httplib.ParsePageConfig(r)
 	claims, err := a.manager.QueryVolume(user.Name, pc)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
 	l := len(claims)
@@ -76,5 +76,5 @@ func (a *Api) QueryVolume(w http.ResponseWriter, r *http.Request) {
 			Size: (&capacity).String(),
 		})
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_OK, pc.FormatOutput(output))
+	httplib.Resp(w, httplib.STATUS_OK, pc.FormatOutput(output))
 }

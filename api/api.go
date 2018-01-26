@@ -1,15 +1,16 @@
-package application
+package api
 
 import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
 
+	"github.com/cabernety/gopkg/httplib"
+
 	"github.com/BoxLinker/application/controller/manager"
+	tAuth "github.com/BoxLinker/application/controller/middleware/auth_token"
 	appModels "github.com/BoxLinker/application/controller/models"
 	"github.com/BoxLinker/application/modules/monitor"
-	"github.com/BoxLinker/boxlinker-api"
-	tAuth "github.com/BoxLinker/application/controller/middleware/auth_token"
 	userModels "github.com/BoxLinker/boxlinker-api/controller/models/user"
 	"github.com/Sirupsen/logrus"
 	"github.com/codegangsta/negroni"
@@ -105,7 +106,7 @@ func (a *Api) checkPodConfigure() error {
 }
 
 func (a *Api) Run() error {
-	cs := boxlinker.Cors
+	cs := httplib.Cors
 	// middleware
 	apiAuthRequired := tAuth.NewAuthTokenRequired(a.config.Auth.TokenAuthUrl)
 
@@ -125,6 +126,7 @@ func (a *Api) Run() error {
 	serviceRouter.HandleFunc("/v1/application/auth/volume/{name}", a.DeleteVolume).Methods("DELETE")
 
 	serviceRouter.HandleFunc("/v1/application/auth/log/{containerID}", a.Log).Methods("GET")
+	serviceRouter.HandleFunc("/v1/application/auth/log/current/{svcName}/{podName}", a.LogCurrent).Methods("GET")
 	serviceRouter.HandleFunc("/v1/application/auth/monitor/{serviceName}", a.Monitor).Methods("GET")
 
 	serviceRouter.HandleFunc("/v1/application/auth/event/{type}", a.Event).Methods("POST")

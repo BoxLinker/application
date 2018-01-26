@@ -1,13 +1,13 @@
-package application
+package api
 
 import (
-	"encoding/base64"
 	"fmt"
 	"net/http"
 
+	"github.com/cabernety/gopkg/httplib"
+
 	"github.com/Sirupsen/logrus"
 
-	"github.com/BoxLinker/boxlinker-api"
 	"github.com/gorilla/mux"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,7 +18,7 @@ import (
 func (a *Api) Event(w http.ResponseWriter, r *http.Request) {
 	u := a.getUserInfo(r)
 	if u.Name != "boxlinker" {
-		boxlinker.Resp(w, boxlinker.STATUS_UNAUTHORIZED, nil, "only admin can operate")
+		httplib.Resp(w, httplib.STATUS_UNAUTHORIZED, nil, "only admin can operate")
 		return
 	}
 	tType := mux.Vars(r)["type"]
@@ -27,18 +27,18 @@ func (a *Api) Event(w http.ResponseWriter, r *http.Request) {
 			Username    string `json:"username"`
 			RegistryKey string `json:"registry_key"`
 		}
-		if err := boxlinker.ReadRequestBody(r, &regMsg); err != nil {
-			boxlinker.Resp(w, boxlinker.STATUS_PARAM_ERR, nil, fmt.Sprintf("获取 ns 参数错误: %v", err))
+		if err := httplib.ReadRequestBody(r, &regMsg); err != nil {
+			httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, fmt.Sprintf("获取 ns 参数错误: %v", err))
 			return
 		}
 		ns := regMsg.Username
 		if len(ns) == 0 {
-			boxlinker.Resp(w, boxlinker.STATUS_PARAM_ERR, nil, "需要 ns 参数")
+			httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "需要 ns 参数")
 			return
 		}
-		nsClient := a.clientSet.Namespaces()
+		nsClient := a.clientSet.CoreV1().Namespaces()
 		if _, err := nsClient.Get(ns, metav1.GetOptions{}); err == nil { // err == nil 说明找到了
-			boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, fmt.Sprintf("%s 已经存在", ns))
+			httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("%s 已经存在", ns))
 			return
 		}
 
@@ -47,22 +47,31 @@ func (a *Api) Event(w http.ResponseWriter, r *http.Request) {
 				Name: ns,
 			},
 		}); err != nil {
-			boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("create namespace %s err: %v", ns, err))
+			httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("create namespace %s err: %v", ns, err))
 			return
 		}
 		// TODO 这里需要拿到用户的明文用户名和密码，得有个安全的解决方式
 		// 但毕竟 registry-key 的 secret 文件因为是 base64 编码 也不够安全
 
 		// 创建 registry-key
-		dockerconfigJSON := fmt.Sprintf(`{"auths":{"index.boxlinker.com":{"auth":"%s"}}}`, regMsg.RegistryKey)
-		if _, err := a.clientSet.Secrets(ns).Create(&apiv1.Secret{
+		dockerconfigJSON := fmt.Sprintf(
+			`{
+	"auths": {
+		"index.boxlinker.com": {
+			"auth": "%s"
+		}
+	}
+}`,
+			regMsg.RegistryKey)
+		logrus.Debugf("create registry-key for namespace(%s): %s", ns, dockerconfigJSON)
+		if _, err := a.clientSet.CoreV1().Secrets(ns).Create(&apiv1.Secret{
 			Type: apiv1.SecretTypeDockerConfigJson,
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "registry-key",
 				Namespace: ns,
 			},
 			Data: map[string][]byte{
-				".dockerconfigjson": []byte(base64.StdEncoding.EncodeToString(dockerconfigJSON)),
+				apiv1.DockerConfigJsonKey: []byte(dockerconfigJSON),
 			},
 		}); err != nil {
 			// 如果创建 secret registry-key 失败，那么回滚删除 namespace
@@ -72,13 +81,15 @@ func (a *Api) Event(w http.ResponseWriter, r *http.Request) {
 				logrus.Errorf("delete namespace %s err: %v", ns, err)
 				// todo 如果这步操作也失败了，应该有一个运行时错误记录服务来记录下这种业务函数的异常处理，然后手工解决
 			}
-			boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, fmt.Sprintf("create registry key for namespace(%s) err: %v", ns, err))
+			httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("create registry key for namespace(%s) err: %v", ns, err))
 			return
 		}
-		boxlinker.Resp(w, boxlinker.STATUS_OK, map[string]string{
+		logrus.Debugf("event ok %s", ns)
+		httplib.Resp(w, httplib.STATUS_OK, map[string]string{
 			"namespace": ns,
 		})
 		return
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, fmt.Sprintf("unknow type %s", tType))
+	logrus.Debugf("unknow type %s", tType)
+	httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("unknow type %s", tType))
 }

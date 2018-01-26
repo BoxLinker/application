@@ -1,11 +1,11 @@
-package application
+package api
 
 import (
 	"fmt"
 	"net/http"
 
-	"github.com/BoxLinker/boxlinker-api"
 	"github.com/Sirupsen/logrus"
+	"github.com/cabernety/gopkg/httplib"
 	"github.com/gorilla/mux"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	apiv1 "k8s.io/api/core/v1"
@@ -15,10 +15,11 @@ import (
 )
 
 type ServicePortForm struct {
-	Name     string `json:"name"`
-	Protocol string `json:"protocol"`
-	Port     int    `json:"port"`
-	Path     string `json:"path"`
+	Name      string `json:"name"`
+	Protocol  string `json:"protocol"`
+	Port      int    `json:"port"`
+	Path      string `json:"path"`
+	IsPrivate bool   `json:"is_private"`
 }
 
 type ServiceForm struct {
@@ -27,6 +28,7 @@ type ServiceForm struct {
 	Memory string             `json:"memory"`
 	CPU    string             `json:"cpu"`
 	Ports  []*ServicePortForm `json:"ports"`
+	Host   string             `json:"host"`
 }
 
 func getDeployByName(name string, list *appsv1beta1.DeploymentList) *appsv1beta1.Deployment {
@@ -47,20 +49,29 @@ func getIngByName(name string, list *extv1beta1.IngressList) *extv1beta1.Ingress
 	return nil
 }
 
+func getSvcByName(name string, list *apiv1.ServiceList) *apiv1.Service {
+	for _, item := range list.Items {
+		if item.Name == name {
+			return &item
+		}
+	}
+	return nil
+}
+
 func (a *Api) IsServiceExist(w http.ResponseWriter, r *http.Request) {
 	svcName := mux.Vars(r)["name"]
 	user := a.getUserInfo(r)
 	namespace := user.Name
 	found, err, _, _, _ := a.manager.GetServiceByName(namespace, svcName)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
 	if !found {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil)
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil)
 		return
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_OK, nil)
+	httplib.Resp(w, httplib.STATUS_OK, nil)
 }
 
 func (a *Api) DeleteService(w http.ResponseWriter, r *http.Request) {
@@ -70,19 +81,19 @@ func (a *Api) DeleteService(w http.ResponseWriter, r *http.Request) {
 	deployOperator := a.clientSet.AppsV1beta1().Deployments(namespace)
 	deploy, err := deployOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
 	svcOperator := a.clientSet.CoreV1().Services(namespace)
 	svc, err := svcOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
 		return
 	}
 	ingOperator := a.clientSet.ExtensionsV1beta1().Ingresses(namespace)
 	ing, err := ingOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, fmt.Sprintf("ingress not found (%s/%s)", namespace, svcName))
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("ingress not found (%s/%s)", namespace, svcName))
 		return
 	}
 
@@ -90,19 +101,19 @@ func (a *Api) DeleteService(w http.ResponseWriter, r *http.Request) {
 	if err := deployOperator.Delete(deploy.Name, &metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, err.Error())
 		return
 	}
 	if err := svcOperator.Delete(svc.Name, &metav1.DeleteOptions{}); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, err.Error())
 		return
 	}
 	if err := ingOperator.Delete(ing.Name, &metav1.DeleteOptions{}); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, err.Error())
 		return
 	}
 
-	boxlinker.Resp(w, boxlinker.STATUS_OK, nil)
+	httplib.Resp(w, httplib.STATUS_OK, nil)
 }
 
 func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
@@ -110,26 +121,26 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	namespace := user.Name
 	form := &ServiceForm{}
-	if err := boxlinker.ReadRequestBody(r, form); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
 		return
 	}
 	deployOperator := a.clientSet.AppsV1beta1().Deployments(namespace)
 	deploy, err := deployOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
 	svcOperator := a.clientSet.CoreV1().Services(namespace)
 	svc, err := svcOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
 		return
 	}
 	ingOperator := a.clientSet.ExtensionsV1beta1().Ingresses(namespace)
 	ing, err := ingOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_NOT_FOUND, nil, fmt.Sprintf("ingress not found (%s/%s)", namespace, svcName))
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("ingress not found (%s/%s)", namespace, svcName))
 		return
 	}
 
@@ -152,7 +163,7 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 	if form.Memory != "" {
 		memory, err := resource.ParseQuantity(form.Memory)
 		if err != nil {
-			boxlinker.Resp(w, boxlinker.STATUS_FORM_VALIDATE_ERR, nil, fmt.Sprintf("memory param (%s) is invalid", form.Memory))
+			httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, fmt.Sprintf("memory param (%s) is invalid", form.Memory))
 			return
 		}
 		logrus.Debugf("Update deploy %s/%s with new memory (%s)", user.Name, svcName, form.Memory)
@@ -164,7 +175,7 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 	if form.CPU != "" {
 		cpu, err := resource.ParseQuantity(form.CPU)
 		if err != nil {
-			boxlinker.Resp(w, boxlinker.STATUS_FORM_VALIDATE_ERR, nil, fmt.Sprintf("cpu param (%s) is invalid", form.CPU))
+			httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, fmt.Sprintf("cpu param (%s) is invalid", form.CPU))
 			return
 		}
 		logrus.Debugf("Update deploy %s/%s with new cpu (%s)", user.Name, svcName, form.CPU)
@@ -198,52 +209,125 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 
 	// 处理 ingress
 	if _, err := ingOperator.Update(ing); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update ingress (%s/%s) error: %v", namespace, svcName, err))
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update ingress (%s/%s) error: %v", namespace, svcName, err))
 		return
 	}
 
 	// 处理 service
 	if _, err := svcOperator.Update(svc); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update service (%s/%s) error: %v", namespace, svcName, err))
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update service (%s/%s) error: %v", namespace, svcName, err))
 		return
 	}
 
 	// 处理 deployment
 	if _, err := deployOperator.Update(deploy); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
 
-	boxlinker.Resp(w, boxlinker.STATUS_OK, deploy)
+	httplib.Resp(w, httplib.STATUS_OK, deploy)
 }
 
+// GetService 根据名称获取服务
+/**
+ * @api {get} /services/:name 根据名称查询服务详情
+ * @apiName GetService
+ * @apiGroup Service
+ *
+ * @apiParam {string} name 服务名称
+ *
+ * @apiSuccess {String} name 服务名称
+ * @apiSuccess {String} image  服务的镜像
+ * @apiSuccess {String} memory  服务的内存配额
+ * @apiSuccess {String} host  服务访问全路径
+ * @apiSuccess {Object[]} ports  服务的内存配额
+ * @apiSuccess {Object[]} ports.protocol  端口协议
+ * @apiSuccess {Object[]} ports.port  端口
+ * @apiSuccess {Object[]} ports.path  端口对应的服务访问路径
+ */
 func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	svcName := mux.Vars(r)["name"]
 	svc, err := a.clientSet.CoreV1().Services(user.Name).Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 svc 失败：%v", err))
 		return
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_OK, svc)
+	deploy, err := a.clientSet.AppsV1beta1().Deployments(user.Name).Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 deploy 失败：%v", err))
+		return
+	}
+	pods, err := a.clientSet.CoreV1().Pods(user.Name).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=%s", svcName),
+	})
+	podsResult := make([]*PodResult, 0)
+	for _, pod := range pods.Items {
+		containers := pod.Status.ContainerStatuses
+		if len(containers) != 1 {
+			logrus.Errorf("multiple containers found in pod(%s), the container len must be 1.", pod.Name)
+			continue
+		}
+		cont := containers[0]
+		podsResult = append(podsResult, &PodResult{
+			ID:          string(pod.UID),
+			Name:        pod.Name,
+			ContainerID: cont.ContainerID,
+		})
+	}
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 pod 失败：%v", err))
+		return
+	}
+
+	ing, err := a.getIngressByName(user.Name, svcName)
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 ingress 失败: %v", err))
+		return
+	}
+	containers := deploy.Spec.Template.Spec.Containers
+	if len(containers) != 1 {
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("deploy %s 的 container 数量不等于 1: %d", len(containers)))
+		return
+	}
+	container := containers[0]
+	result := &ServiceResult{
+		Name:   svc.Name,
+		Image:  container.Image,
+		Memory: container.Resources.Limits.Memory().String(),
+		Host:   svc.Annotations["host"],
+		Pods:   podsResult,
+	}
+	portsResult := make([]*PortResult, 0)
+	ports := svc.Spec.Ports
+	for _, port := range ports {
+		portsResult = append(portsResult, &PortResult{
+			Port:     int(port.Port),
+			Protocol: string(port.Protocol),
+			Path:     a.findPathByPortAndSvcName(svc.Name, port, ing),
+		})
+	}
+	result.Ports = portsResult
+	httplib.Resp(w, httplib.STATUS_OK, result)
 }
 
+// QueryService 查询服务列表
 func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
-	pc := boxlinker.ParsePageConfig(r)
+	pc := httplib.ParsePageConfig(r)
 	deploys, err := a.clientSet.AppsV1beta1().Deployments(user.Name).List(metav1.ListOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
 	ings, err := a.clientSet.ExtensionsV1beta1().Ingresses(user.Name).List(metav1.ListOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
 	svcs, err := a.clientSet.CoreV1().Services(user.Name).List(metav1.ListOptions{})
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
 	output := make([]*ServiceForm, 0)
@@ -266,6 +350,7 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 	for _, item := range listOut {
 		deploy := getDeployByName(item.Name, deploys)
 		ing := getIngByName(item.Name, ings)
+		svc := getSvcByName(item.Name, svcs)
 		line := &ServiceForm{
 			Name: item.Name,
 		}
@@ -276,6 +361,7 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 				line.Image = container.Image
 				line.Memory = container.Resources.Limits.Memory().String()
 				line.CPU = container.Resources.Limits.Cpu().String()
+				line.Host = svc.Annotations["host"]
 			} else {
 				logrus.Warnf("Found Service contains more than one container: (%s)", item.Name)
 			}
@@ -307,17 +393,24 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 		}
 		output = append(output, line)
 	}
-	boxlinker.Resp(w, boxlinker.STATUS_OK, map[string]interface{}{
+	httplib.Resp(w, httplib.STATUS_OK, map[string]interface{}{
 		"pagination": pc.PaginationJSON(),
 		"data":       output,
 	})
 }
 
+// CreateService 创建服务
 func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
+	var (
+		deploymentCreated bool
+		serviceCreated    bool
+		ingressCreated    bool
+		errHappend        bool
+	)
 	user := a.getUserInfo(r)
 	form := &ServiceForm{}
-	if err := boxlinker.ReadRequestBody(r, form); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
 		return
 	}
 
@@ -325,12 +418,12 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	// todo 检查 memory 参数，格式应为 64Mi
 	memoryQuantity, err := resource.ParseQuantity(form.Memory)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, fmt.Sprintf("memory param (%s) is invalid", form.Memory))
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("memory param (%s) is invalid", form.Memory))
 		return
 	}
 	cpuQuantity, err := resource.ParseQuantity(form.CPU)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, nil, fmt.Sprintf("cpu param (%s) is invalid", form.CPU))
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("cpu param (%s) is invalid", form.CPU))
 		return
 	}
 	// registry key
@@ -346,8 +439,34 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// create deployment
 	deploymentsClient := a.clientSet.AppsV1beta1().Deployments(user.Name)
+	svcClient := a.clientSet.CoreV1().Services(user.Name)
+	ingClient := a.clientSet.ExtensionsV1beta1().Ingresses(user.Name)
+
+	defer func() {
+		if !errHappend {
+			return
+		}
+		name := fmt.Sprintf("%s/%s", user.Name, form.Name)
+		logrus.Debugf("err when create service, rollback ...")
+		if deploymentCreated {
+			if err := deploymentsClient.Delete(form.Name, &metav1.DeleteOptions{}); err != nil {
+				logrus.Errorf("rollback to del deploy (%s) failed.", name)
+			}
+		}
+		if serviceCreated {
+			if err := svcClient.Delete(form.Name, &metav1.DeleteOptions{}); err != nil {
+				logrus.Errorf("rollback to del svc (%s) failed.", name)
+			}
+		}
+		if ingressCreated {
+			if err := ingClient.Delete(form.Name, &metav1.DeleteOptions{}); err != nil {
+				logrus.Errorf("rollback to del ing (%s) failed.", name)
+			}
+		}
+	}()
+
+	// create deployment
 	deployment := &appsv1beta1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: form.Name,
@@ -386,8 +505,11 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	logrus.Debugf("Create Deployment %s/%s (%+v)", user.Name, form.Name, deployment)
 	result, err := deploymentsClient.Create(deployment)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		errHappend = true
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
+	} else {
+		deploymentCreated = true
 	}
 	logrus.Debugf("Created deployment %q.\n", result.GetObjectMeta().GetName())
 
@@ -395,8 +517,15 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	 *	如果没有暴露 port ，那么就没必要生成 svc 和 ingress 了， 直接返回
 	 */
 	if len(portsF) <= 0 {
-		boxlinker.Resp(w, boxlinker.STATUS_OK, nil)
+		httplib.Resp(w, httplib.STATUS_OK, nil)
 		return
+	}
+
+	host := fmt.Sprintf("%s-%s.%s.boxlinker.com", user.Name, form.Name, "lb1")
+
+	// todo 需要权限验证
+	if form.Host != "" {
+		host = form.Host
 	}
 
 	// create service
@@ -409,6 +538,9 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	service := &apiv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: form.Name,
+			Annotations: map[string]string{
+				"host": host,
+			},
 		},
 		Spec: apiv1.ServiceSpec{
 			Ports: svcPorts,
@@ -418,21 +550,27 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	logrus.Debugf("Create Svc %s/%s (%+v)", user.Name, form.Name, service)
-	svc, err := a.clientSet.CoreV1().Services(user.Name).Create(service)
+	svc, err := svcClient.Create(service)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, "", err.Error())
+		errHappend = true
+		httplib.Resp(w, httplib.STATUS_FAILED, "", err.Error())
 		return
+	} else {
+		serviceCreated = true
 	}
 	logrus.Debugf("Created Svc %q.\n", svc.GetObjectMeta().GetName())
 
 	// create ingress
 	paths := make([]extv1beta1.HTTPIngressPath, 0)
 	for _, port := range portsF {
+		if port.IsPrivate {
+			continue
+		}
 		paths = append(paths, FormatIngressPath(port.Path, form.Name, port.Port))
 	}
 	rules := make([]extv1beta1.IngressRule, 0)
 	rules = append(rules, extv1beta1.IngressRule{
-		Host: fmt.Sprintf("%s-%s.%s.boxlinker.com", user.Name, form.Name, "lb1"),
+		Host: host,
 		IngressRuleValue: extv1beta1.IngressRuleValue{
 			HTTP: &extv1beta1.HTTPIngressRuleValue{
 				Paths: paths,
@@ -448,12 +586,15 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	logrus.Debugf("Create Ingress %s/%s (%+v)", user.Name, form.Name, ingress)
-	ing, err := a.clientSet.ExtensionsV1beta1().Ingresses(user.Name).Create(ingress)
+	ing, err := ingClient.Create(ingress)
 	if err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_FAILED, "", err.Error())
+		errHappend = true
+		httplib.Resp(w, httplib.STATUS_FAILED, "", err.Error())
 		return
+	} else {
+		ingressCreated = true
 	}
 	logrus.Debugf("Created ingress %q.\n", ing.GetObjectMeta().GetName())
 
-	boxlinker.Resp(w, boxlinker.STATUS_OK, nil)
+	httplib.Resp(w, httplib.STATUS_OK, nil)
 }

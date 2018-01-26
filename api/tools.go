@@ -1,4 +1,4 @@
-package application
+package api
 
 import (
 	apiv1 "k8s.io/api/core/v1"
@@ -18,16 +18,16 @@ func FormatIngressPath(path, svcName string, svcPort int) extv1beta1.HTTPIngress
 
 func FormatContainerPort(name, protocol string, port int) apiv1.ContainerPort {
 	return apiv1.ContainerPort{
-		Name: name,
-		Protocol: apiv1.ProtocolTCP,
+		Name:          name,
+		Protocol:      apiv1.ProtocolTCP,
 		ContainerPort: int32(port),
 	}
 }
 
 func FormatServicePort(name, protocol string, port int) apiv1.ServicePort {
 	return apiv1.ServicePort{
-		Name: name,
+		Name:     name,
 		Protocol: apiv1.ProtocolTCP,
-		Port: int32(port),
+		Port:     int32(port),
 	}
 }
