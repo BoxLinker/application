@@ -577,12 +577,21 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	})
+	tls := make([]extv1beta1.IngressTLS, 0)
+	if user.Name == "boxlinker" { // todo 目前只有系统用户，先简单粗暴一下
+		tls = append(tls, extv1beta1.IngressTLS{
+			Hosts:      []string{host},
+			SecretName: "lb-certs",
+		})
+	}
 	ingress := &extv1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: form.Name,
 		},
 		Spec: extv1beta1.IngressSpec{
 			Rules: rules,
+			// todo 根据用户的证书设置，在这里需要设置 tls 属性
+			TLS: tls,
 		},
 	}
 	logrus.Debugf("Create Ingress %s/%s (%+v)", user.Name, form.Name, ingress)
@@ -591,9 +600,9 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		errHappend = true
 		httplib.Resp(w, httplib.STATUS_FAILED, "", err.Error())
 		return
-	} else {
-		ingressCreated = true
 	}
+	ingressCreated = true
+
 	logrus.Debugf("Created ingress %q.\n", ing.GetObjectMeta().GetName())
 
 	httplib.Resp(w, httplib.STATUS_OK, nil)
