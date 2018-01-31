@@ -21,14 +21,21 @@ type ServicePortForm struct {
 	Path      string `json:"path"`
 	IsPrivate bool   `json:"is_private"`
 }
+type ServiceHostVolumeForm struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	HostPath string `json:"host_path"`
+	ReadOnly bool   `json:"readonly"`
+}
 
 type ServiceForm struct {
-	Name   string             `json:"name"`
-	Image  string             `json:"image"`
-	Memory string             `json:"memory"`
-	CPU    string             `json:"cpu"`
-	Ports  []*ServicePortForm `json:"ports"`
-	Host   string             `json:"host"`
+	Name        string                   `json:"name"`
+	Image       string                   `json:"image"`
+	Memory      string                   `json:"memory"`
+	CPU         string                   `json:"cpu"`
+	Ports       []*ServicePortForm       `json:"ports"`
+	HostVolumes []*ServiceHostVolumeForm `json:"host_volumes"`
+	Host        string                   `json:"host"`
 }
 
 func getDeployByName(name string, list *appsv1beta1.DeploymentList) *appsv1beta1.Deployment {
@@ -439,6 +446,35 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// volumes
+	volumeMounts := make([]apiv1.VolumeMount, 0)
+	volumes := make([]apiv1.Volume, 0)
+	if len(form.HostVolumes) > 0 {
+		for _, v := range form.HostVolumes {
+			if v.Name == "" {
+				httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "待挂载的宿主机路径需要填写名称")
+				return
+			}
+			if v.Path == "/" || v.HostPath == "/" {
+				httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "待挂载的宿主机路径不能为根目录 /")
+				return
+			}
+			volumeMounts = append(volumeMounts, apiv1.VolumeMount{
+				Name:      v.Name,
+				MountPath: v.Path,
+				ReadOnly:  v.ReadOnly,
+			})
+			volumes = append(volumes, apiv1.Volume{
+				Name: v.Name,
+				VolumeSource: apiv1.VolumeSource{
+					HostPath: &apiv1.HostPathVolumeSource{
+						Path: v.HostPath,
+					},
+				},
+			})
+		}
+	}
+
 	deploymentsClient := a.clientSet.AppsV1beta1().Deployments(user.Name)
 	svcClient := a.clientSet.CoreV1().Services(user.Name)
 	ingClient := a.clientSet.ExtensionsV1beta1().Ingresses(user.Name)
@@ -496,8 +532,10 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 									apiv1.ResourceCPU:    cpuQuantity,
 								},
 							},
+							VolumeMounts: volumeMounts,
 						},
 					},
+					Volumes: volumes,
 				},
 			},
 		},
