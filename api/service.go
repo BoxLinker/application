@@ -378,29 +378,27 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 		}
 		ports := container.Ports
 		portsF := make([]*ServicePortForm, 0)
-		if len(ports) > 0 {
-			for _, port := range ports {
-				svcPortForm := &ServicePortForm{
-					Name: port.Name,
-					// todo 转化 ServicePort Protocol 为 字符串
-					Protocol: "tcp",
-					Port:     int(port.ContainerPort),
-				}
-				if ing != nil {
-					rules := ing.Spec.Rules
-					if len(rules) > 0 {
-						paths := rules[0].HTTP.Paths
-						for _, path := range paths {
-							if path.Backend.ServiceName == item.Name && path.Backend.ServicePort.IntVal == port.ContainerPort {
-								svcPortForm.Path = path.Path
-							}
+		for _, port := range ports {
+			svcPortForm := &ServicePortForm{
+				Name: port.Name,
+				// todo 转化 ServicePort Protocol 为 字符串
+				Protocol: "tcp",
+				Port:     int(port.ContainerPort),
+			}
+			if ing != nil {
+				rules := ing.Spec.Rules
+				if len(rules) > 0 {
+					paths := rules[0].HTTP.Paths
+					for _, path := range paths {
+						if path.Backend.ServiceName == item.Name && path.Backend.ServicePort.IntVal == port.ContainerPort {
+							svcPortForm.Path = path.Path
 						}
 					}
 				}
-				portsF = append(portsF, svcPortForm)
 			}
-			line.Ports = portsF
+			portsF = append(portsF, svcPortForm)
 		}
+		line.Ports = portsF
 		output = append(output, line)
 	}
 	httplib.Resp(w, httplib.STATUS_OK, map[string]interface{}{
