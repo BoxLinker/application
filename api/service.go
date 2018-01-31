@@ -255,11 +255,6 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	svcName := mux.Vars(r)["name"]
-	svc, err := a.clientSet.CoreV1().Services(user.Name).Get(svcName, metav1.GetOptions{})
-	if err != nil {
-		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 svc 失败：%v", err))
-		return
-	}
 	deploy, err := a.clientSet.AppsV1beta1().Deployments(user.Name).Get(svcName, metav1.GetOptions{})
 	if err != nil {
 		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 deploy 失败：%v", err))
@@ -294,25 +289,28 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 	}
 	containers := deploy.Spec.Template.Spec.Containers
 	if len(containers) != 1 {
-		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("deploy %s 的 container 数量不等于 1: %d", len(containers)))
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("deploy %s 的 container 数量不等于 1: %d", svcName, len(containers)))
 		return
 	}
 	container := containers[0]
 	result := &ServiceResult{
-		Name:   svc.Name,
+		Name:   deploy.Name,
 		Image:  container.Image,
 		Memory: container.Resources.Limits.Memory().String(),
-		Host:   svc.Annotations["host"],
 		Pods:   podsResult,
 	}
 	portsResult := make([]*PortResult, 0)
-	ports := svc.Spec.Ports
-	for _, port := range ports {
-		portsResult = append(portsResult, &PortResult{
-			Port:     int(port.Port),
-			Protocol: string(port.Protocol),
-			Path:     a.findPathByPortAndSvcName(svc.Name, port, ing),
-		})
+	svc, _ := a.clientSet.CoreV1().Services(user.Name).Get(svcName, metav1.GetOptions{})
+	if svc != nil {
+		ports := svc.Spec.Ports
+		for _, port := range ports {
+			portsResult = append(portsResult, &PortResult{
+				Port:     int(port.Port),
+				Protocol: string(port.Protocol),
+				Path:     a.findPathByPortAndSvcName(svc.Name, port, ing),
+			})
+		}
+		result.Host = svc.Annotations["host"]
 	}
 	result.Ports = portsResult
 	httplib.Resp(w, httplib.STATUS_OK, result)
@@ -450,10 +448,9 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	volumeMounts := make([]apiv1.VolumeMount, 0)
 	volumes := make([]apiv1.Volume, 0)
 	if len(form.HostVolumes) > 0 {
-		for _, v := range form.HostVolumes {
+		for k, v := range form.HostVolumes {
 			if v.Name == "" {
-				httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "待挂载的宿主机路径需要填写名称")
-				return
+				v.Name = fmt.Sprintf("%s-host_volume-%d", form.Name, k)
 			}
 			if v.Path == "/" || v.HostPath == "/" {
 				httplib.Resp(w, httplib.STATUS_PARAM_ERR, nil, "待挂载的宿主机路径不能为根目录 /")
@@ -546,9 +543,8 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		errHappend = true
 		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
-	} else {
-		deploymentCreated = true
 	}
+	deploymentCreated = true
 	logrus.Debugf("Created deployment %q.\n", result.GetObjectMeta().GetName())
 
 	/**
@@ -593,9 +589,8 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		errHappend = true
 		httplib.Resp(w, httplib.STATUS_FAILED, "", err.Error())
 		return
-	} else {
-		serviceCreated = true
 	}
+	serviceCreated = true
 	logrus.Debugf("Created Svc %q.\n", svc.GetObjectMeta().GetName())
 
 	// create ingress
@@ -605,6 +600,11 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		paths = append(paths, FormatIngressPath(port.Path, form.Name, port.Port))
+	}
+	// 如果 paths 为空，那么就不用生成 ingress 了
+	if len(paths) == 0 {
+		httplib.Resp(w, httplib.STATUS_OK, nil)
+		return
 	}
 	rules := make([]extv1beta1.IngressRule, 0)
 	rules = append(rules, extv1beta1.IngressRule{
