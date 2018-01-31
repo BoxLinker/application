@@ -353,27 +353,30 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 			end = pc.Offset() + pc.Limit()
 		}
 	}
-	listOut := svcs.Items[start:end]
+	listOut := deploys.Items[start:end]
 	for _, item := range listOut {
-		deploy := getDeployByName(item.Name, deploys)
+		deploy := &item //getDeployByName(item.Name, deploys)
 		ing := getIngByName(item.Name, ings)
 		svc := getSvcByName(item.Name, svcs)
 		line := &ServiceForm{
 			Name: item.Name,
 		}
-		if deploy != nil {
-			containers := deploy.Spec.Template.Spec.Containers
-			if len(containers) == 1 {
-				container := containers[0]
-				line.Image = container.Image
-				line.Memory = container.Resources.Limits.Memory().String()
-				line.CPU = container.Resources.Limits.Cpu().String()
-				line.Host = svc.Annotations["host"]
-			} else {
-				logrus.Warnf("Found Service contains more than one container: (%s)", item.Name)
-			}
+		containers := deploy.Spec.Template.Spec.Containers
+		if len(containers) == 0 {
+			httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, "container len 0")
+			return
 		}
-		ports := item.Spec.Ports
+		if len(containers) != 1 {
+			logrus.Warnf("Found Service contains more than one container: (%s)", item.Name)
+		}
+		container := containers[0]
+		line.Image = container.Image
+		line.Memory = container.Resources.Limits.Memory().String()
+		line.CPU = container.Resources.Limits.Cpu().String()
+		if svc != nil {
+			line.Host = svc.Annotations["host"]
+		}
+		ports := container.Ports
 		portsF := make([]*ServicePortForm, 0)
 		if len(ports) > 0 {
 			for _, port := range ports {
@@ -381,14 +384,14 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 					Name: port.Name,
 					// todo 转化 ServicePort Protocol 为 字符串
 					Protocol: "tcp",
-					Port:     int(port.Port),
+					Port:     int(port.ContainerPort),
 				}
 				if ing != nil {
 					rules := ing.Spec.Rules
 					if len(rules) > 0 {
 						paths := rules[0].HTTP.Paths
 						for _, path := range paths {
-							if path.Backend.ServiceName == item.Name && path.Backend.ServicePort.IntVal == port.Port {
+							if path.Backend.ServiceName == item.Name && path.Backend.ServicePort.IntVal == port.ContainerPort {
 								svcPortForm.Path = path.Path
 							}
 						}
