@@ -282,11 +282,6 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ing, err := a.getIngressByName(user.Name, svcName)
-	if err != nil {
-		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 ingress 失败: %v", err))
-		return
-	}
 	containers := deploy.Spec.Template.Spec.Containers
 	if len(containers) != 1 {
 		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("deploy %s 的 container 数量不等于 1: %d", svcName, len(containers)))
@@ -302,13 +297,20 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 	portsResult := make([]*PortResult, 0)
 	svc, _ := a.clientSet.CoreV1().Services(user.Name).Get(svcName, metav1.GetOptions{})
 	if svc != nil {
+		ing, err := a.getIngressByName(user.Name, svcName)
+		if err != nil {
+			logrus.Errorf("svc 已获取成功，获取 ingress 失败: %v", err)
+		}
 		ports := svc.Spec.Ports
 		for _, port := range ports {
-			portsResult = append(portsResult, &PortResult{
+			pPortsResult := &PortResult{
 				Port:     int(port.Port),
 				Protocol: string(port.Protocol),
-				Path:     a.findPathByPortAndSvcName(svc.Name, port, ing),
-			})
+			}
+			if ing != nil {
+				pPortsResult.Path = a.findPathByPortAndSvcName(svc.Name, port, ing)
+			}
+			portsResult = append(portsResult, pPortsResult)
 		}
 		result.Host = svc.Annotations["host"]
 	}
