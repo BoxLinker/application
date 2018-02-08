@@ -1,0 +1,68 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: application
+  namespace: boxlinker
+spec:
+  rules:
+  - host: api.boxlinker.com
+    http:
+      paths:
+      - path: /v1/application
+        backend:
+          serviceName: application
+          servicePort: 8080
+  tls:
+  - hosts:
+    - api.boxlinker.com
+    secretName: lb-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: application
+  namespace: boxlinker
+  labels:
+    app: "application"
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app: "application"
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: application
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: "application"
+    spec:
+      nodeSelector:
+        role: system
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+      - name: application
+        imagePullPolicy: Always
+        image: index.boxlinker.com/boxlinker/application-server:v0.1-dev1-0-g1d28c11
+        args:
+        - /app/application
+        env:
+        - name: CONFIG_FILE
+          value: /app/config/env.yml
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: config
+          mountPath: /app/config/
+      volumes:
+      - name: config
+        secret:
+          secretName: "application-server-config"
+
+

@@ -1,0 +1,70 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  namespace: boxlinker
+spec:
+  serviceName: "mariadb"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        role: user
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+        - name: mariadb
+          #image: mariadb:10.1.22@sha256:21afb9ab191aac8ced2e1490ad5ec6c0f1c5704810d73451dd124670bcacfb14
+          image: index.boxlinker.com/library/mariadb:10.1
+          ports:
+            - containerPort: 3306
+              name: mysql
+            - containerPort: 4444
+              name: sst
+            - containerPort: 4567
+              name: replication
+            - containerPort: 4567
+              protocol: UDP
+              name: replicationudp
+            - containerPort: 4568
+              name: ist
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: rootpw
+            - name: MYSQL_INITDB_SKIP_TZINFO
+              value: "yes"
+            - name: MYSQL_SAFE_TO_BOOTSTRAP
+              value: "1"
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+            # Remove after first replicas=1 create
+            - --wsrep-new-cluster
+          volumeMounts:
+            - name: mysql
+              mountPath: /var/lib/mysql
+            - name: conf
+              mountPath: /etc/mysql/conf.d
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: conf
+          configMap:
+            name: mysql-conf-d
+        - name: initdb
+          emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: mysql
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi

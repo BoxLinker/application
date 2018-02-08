@@ -1,0 +1,61 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: email
+  namespace: boxlinker
+spec:
+  rules:
+  - host: api.boxlinker.com
+    http:
+      paths:
+      - path: /v1/email
+        backend:
+          serviceName: email
+          servicePort: 8080
+  tls:
+  - hosts:
+    - api.boxlinker.com
+    secretName: lb-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: email
+  namespace: boxlinker
+  labels:
+    app: "email"
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app: "email"
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: email
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: "email"
+    spec:
+      nodeSelector:
+        role: system
+      containers:
+      - name: email
+        image: registry.cn-beijing.aliyuncs.com/cabernety/email-server:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        args:
+        - /email
+        - -D
+        - --test
+        - --mail-host=smtp.exmail.qq.com:25
+        - --mail-user=service@boxlinker.com
+        - --mail-user-title=Boxlinker
+        - --mail-password=Just4fun
+        - --mail-type=html

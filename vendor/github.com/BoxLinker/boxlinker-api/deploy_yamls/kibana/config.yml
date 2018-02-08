@@ -1,0 +1,59 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: kibana
+  namespace: boxlinker
+spec:
+  rules:
+  - host: kibana.boxlinker.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: kibana
+          servicePort: 5601
+  tls:
+  - hosts:
+    - kibana.boxlinker.com
+    secretName: lb-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: boxlinker
+  labels:
+    app: kibana
+spec:
+  ports:
+  - port: 5601
+  selector:
+    app: kibana
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      nodeSelector:
+        role: system
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+      - name: application
+        imagePullPolicy: Always
+        image: blacktop/kibana:5.6
+        env:
+        - name: ELASTICSEARCH_URL
+          value: http://elasticsearch:9200
+        ports:
+        - containerPort: 5601
+
+

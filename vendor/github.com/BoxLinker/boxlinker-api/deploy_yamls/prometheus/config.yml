@@ -1,0 +1,62 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: prometheus
+  namespace: boxlinker
+spec:
+  rules:
+  - host: prometheus.boxlinker.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: prometheus
+          servicePort: 9090
+  tls:
+  - hosts:
+    - prometheus.boxlinker.com
+    secretName: lb-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: boxlinker
+  labels:
+    app: "prometheus"
+spec:
+  ports:
+  - port: 9090
+  selector:
+    app: "prometheus"
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: "prometheus"
+    spec:
+      nodeSelector:
+        role: system
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+      - name: prometheus
+        image: index.boxlinker.com/prometheus/prometheus:latest
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus/
+      volumes:
+      - name: config
+        secret:
+          secretName: "prometheus-config"
+
+

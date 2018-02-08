@@ -1,0 +1,68 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: user
+  namespace: boxlinker
+spec:
+  rules:
+  - host: api.boxlinker.com
+    http:
+      paths:
+      - path: /v1/user
+        backend:
+          serviceName: user
+          servicePort: 8080
+  tls:
+  - hosts:
+    - api.boxlinker.com
+    secretName: lb-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user
+  namespace: boxlinker
+  labels:
+    app: "user"
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app: "user"
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: user
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: "user"
+    spec:
+      nodeSelector:
+        role: system
+      containers:
+      - name: email
+        image: registry.cn-beijing.aliyuncs.com/cabernety/user-server:v1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        args:
+        - /user
+        - -D
+        - --db-user=boxlinker
+        - --db-password=FB07ObC7xeTu
+        - --db-host=mysql
+        - --db-port=3306
+        - --db-name=boxlinker
+        - --admin-name=boxlinker
+        - --admin-password=QAZwsx123
+        - --admin-email=service@boxlinker.com
+        - --user-password-salt=a_random_user_password_salt
+        - --send-email-uri=http://email:8080/v1/email/send
+        - --verify-email-uri=https://api.boxlinker.com/v1/user/auth/confirm_email
+        - --cookie-domain=.boxlinker.com
+

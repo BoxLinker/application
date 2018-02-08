@@ -1,0 +1,54 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: gitlab
+  namespace: boxlinker
+spec:
+  serviceName: "gitlab"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        role: system
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+        - name: gitlab
+          image: index.boxlinker.com/library/gitlab-ce:latest
+          ports:
+            - containerPort: 80
+              name: web
+            - containerPort: 22
+              name: ssh
+          env:
+            - name: GITLAB_ROOT_PASSWORD
+              value: "Box1inkerGitlabPassword"
+            - name: GITLAB_HOST
+              value: "https://git.boxlinker.com"
+            - name: GITLAB_HOST
+              value: "development"
+            - name: GITLAB_DATABASE_ADAPTER
+              value: "mysql2"
+            - name: GITLAB_DATABASE_USERNAME
+              value: "boxlinker"
+            - name: GITLAB_DATABASE_PASSWORD
+              value: "FB07ObC7xeTu"
+            - name: GITLAB_DATABASE_HOST
+              value: "mysql"
+            - name: GITLAB_DATABASE_PORT
+              value: 3306
+          volumeMounts:
+            - name: data
+              mountPath: /var/opt/gitlab
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi

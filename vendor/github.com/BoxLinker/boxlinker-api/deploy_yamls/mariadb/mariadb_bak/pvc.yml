@@ -1,0 +1,42 @@
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mysql-mariadb-0
+  namespace: boxlinker
+  annotations:
+    volume.beta.kubernetes.io/storage-class: rbd
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mysql-mariadb-1
+  namespace: boxlinker
+  annotations:
+    volume.beta.kubernetes.io/storage-class: rbd
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mysql-mariadb-2
+  namespace: boxlinker
+  annotations:
+    volume.beta.kubernetes.io/storage-class: rbd
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

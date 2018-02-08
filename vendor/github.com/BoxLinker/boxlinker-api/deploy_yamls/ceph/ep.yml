@@ -1,0 +1,12 @@
+kind: Endpoints
+apiVersion: v1
+metadata:
+  name: ceph
+  namespace: boxlinker
+subsets:
+  - addresses:
+      - ip: 10.10.10.11
+      - ip: 10.10.10.12
+      - ip: 10.10.10.21
+    ports:
+      - port: 5000

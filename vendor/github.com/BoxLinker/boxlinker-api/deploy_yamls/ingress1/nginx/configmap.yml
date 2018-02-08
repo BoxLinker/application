@@ -1,0 +1,9 @@
+apiVersion: v1
+data:
+  enable-vts-status: "true"
+  proxy-body-size: "0"
+  server-names-hash-bucket-size: "32"
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-config1
+  namespace: boxlinker

@@ -1,0 +1,68 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: rolling-update
+  namespace: boxlinker
+spec:
+  rules:
+  - host: api.boxlinker.com
+    http:
+      paths:
+      - path: /v1/rolling-update
+        backend:
+          serviceName: rolling-update
+          servicePort: 8080
+  tls:
+  - hosts:
+    - api.boxlinker.com
+    secretName: lb-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rolling-update
+  namespace: boxlinker
+  labels:
+    app: "rolling-update"
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app: "rolling-update"
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: rolling-update
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: "rolling-update"
+    spec:
+      nodeSelector:
+        role: system
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+      - name: rolling-update
+        imagePullPolicy: Always
+        image: index.boxlinker.com/boxlinker/rolling-update:v1.0
+        args:
+        - /app/rolling-update
+        env:
+        - name: CONFIG_FILE
+          value: /app/config/env.yml
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: config
+          mountPath: /app/config/
+      volumes:
+      - name: config
+        secret:
+          secretName: "env-rolling-update"
+
+

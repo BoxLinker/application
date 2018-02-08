@@ -1,0 +1,68 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: boxlinker
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      nodeSelector:
+        role: system
+      imagePullSecrets:
+      - name: registry-key
+      containers:
+      - name: rabbitmq
+        imagePullPolicy: Always
+        image: index.boxlinker.com/library/rabbitmq:3-management
+        ports:
+        - containerPort: 5672
+          name: tcp
+        - containerPort: 15672
+          name: mgr
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: guest
+        - name: RABBITMQ_DEFAULT_PASS
+          value: guest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: boxlinker
+  labels:
+    app: rabbitmq
+spec:
+  selector:
+    app: rabbitmq
+  sessionAffinity: ClientIP
+  ports:
+  - name: rabbitmq
+    protocol: TCP
+    port: 5672
+  - name: mgr
+    protocol: TCP
+    port: 15672
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: rabbitmq-mgr
+  namespace: boxlinker
+spec:
+  tls:
+  - hosts:
+    - rabbitmq-mgr.boxlinker.com
+    secretName: lb-cert
+  rules:
+  - host: rabbitmq-mgr.boxlinker.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: rabbitmq
+          servicePort: 15672
