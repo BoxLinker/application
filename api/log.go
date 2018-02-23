@@ -10,8 +10,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/cabernety/gopkg/httplib"
-	"github.com/cabernety/gopkg/stream"
-	streamhttp "github.com/cabernety/gopkg/stream/http"
 	"github.com/gorilla/mux"
 	apiv1 "k8s.io/api/core/v1"
 )
@@ -36,9 +34,10 @@ type esReader struct {
 	notify      chan []byte
 	errCh       chan error
 	end         bool
+	done        <-chan struct{}
 }
 
-func newESReader(containerID, startTime string, notify chan []byte) (*esReader, chan error) {
+func newESReader(done <-chan struct{}, containerID, startTime string, notify chan []byte) (*esReader, chan error) {
 	errCh := make(chan error)
 	return &esReader{
 		containerID: containerID,
@@ -46,42 +45,68 @@ func newESReader(containerID, startTime string, notify chan []byte) (*esReader, 
 		end:         false,
 		notify:      notify,
 		errCh:       errCh,
+		done:        done,
 	}, errCh
 }
 
-func (r *esReader) stop() {
-	r.end = true
-}
+// func (r *esReader) stop() {
+// 	r.end = true
+// }
 
 func (r *esReader) start() {
+Loop:
 	for {
-		if r.end {
-			break
-		}
-		b, err := r.read()
-		if err != nil {
-			r.errCh <- err
-			break
-		}
+		select {
+		case <-r.done:
+			break Loop
+		case <-time.After(time.Second):
+			b, err := r.read()
+			if err != nil {
+				r.errCh <- err
+				break
+			}
 
-		// 解析结果，并获取最后一条的时间戳
-		var result Result
-		if err := json.Unmarshal(b, &result); err != nil {
-			r.errCh <- err
-			break
+			// 解析结果，并获取最后一条的时间戳
+			var result Result
+			if err := json.Unmarshal(b, &result); err != nil {
+				r.errCh <- err
+				break
+			}
+			hits := result.Hits.Hits
+			if len(hits) > 0 {
+				r.startTime = hits[len(hits)-1].Source.Timestamp
+				logrus.Debugf("log fetch got hits len: %d", len(hits))
+			}
+			r.notify <- b
 		}
-		hits := result.Hits.Hits
-		if len(hits) <= 0 {
-			time.Sleep(time.Second)
-			continue
-		}
-		r.startTime = hits[len(hits)-1].Source.Timestamp
-		logrus.Debugf("log fetch got hits len: %d", len(hits))
-		logrus.Println("========")
-		for _, hit := range hits {
-			r.notify <- []byte(hit.Source.Log)
-		}
-		time.Sleep(time.Second / 10)
+		// if r.end {
+		// 	break
+		// }
+		// b, err := r.read()
+		// if err != nil {
+		// 	r.errCh <- err
+		// 	break
+		// }
+
+		// // 解析结果，并获取最后一条的时间戳
+		// var result Result
+		// if err := json.Unmarshal(b, &result); err != nil {
+		// 	r.errCh <- err
+		// 	break
+		// }
+		// hits := result.Hits.Hits
+		// if len(hits) <= 0 {
+		// 	time.Sleep(time.Second)
+		// 	continue
+		// }
+		// r.startTime = hits[len(hits)-1].Source.Timestamp
+		// logrus.Debugf("log fetch got hits len: %d", len(hits))
+		// logrus.Println("========")
+		// r.notify <- b
+		// // for _, hit := range hits {
+		// // 	r.notify <- []byte(hit.Source.Log)
+		// // }
+		// time.Sleep(time.Second / 10)
 	}
 }
 
@@ -115,10 +140,10 @@ func (r *esReader) read() ([]byte, error) {
 		containerID,
 		startTime,
 	)
-	logrus.Debugf("log fetch uri: %s", uri)
-	logrus.Debugf("log fetch body: %s", body)
+	// logrus.Debugf("log fetch uri: %s", uri)
+	// logrus.Debugf("log fetch body: %s", body)
 	res, err := httplib.Get(uri).Body(body).SetTimeout(time.Second*10, time.Second*10).Response()
-	logrus.Debugf("log fetch (%s -> now)", startTime)
+	// logrus.Debugf("log fetch (%s -> now)", startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -153,54 +178,113 @@ func (a *Api) LogCurrent(w http.ResponseWriter, r *http.Request) {
  *	@param {string} startTime 日志的起始时间，格式为 `2017-11-11T05:22:37.000882442Z` 或者不传
  */
 func (a *Api) Log(w http.ResponseWriter, r *http.Request) {
-
 	containerID := mux.Vars(r)["containerID"]
-
 	startTime := httplib.GetQueryParam(r, "start_time")
-
 	if startTime == "" {
 		startTime = "now-5m" // 默认获取 5 分钟以内的
 	}
 
-	w.Header().Set("Content-Type", "text/plain")
-	// Chrome won't show data if we don't set this. See
-	// http://stackoverflow.com/questions/26164705/chrome-not-handling-chunked-responses-like-firefox-safari.
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
-	rw := streamhttp.StreamingResponseWriter(w)
-	defer close(stream.Heartbeat(w, time.Second*25)) // Send a null character every 25 seconds.
-
-	disconnectNotify := w.(http.CloseNotifier).CloseNotify()
-	bufCh := make(chan []byte)
-	//errCh := make(chan error)
-	//exitCh := make(chan error)
-
-	esr, errCh := newESReader(containerID, startTime, bufCh)
-	go esr.start()
-
-	done := false
-
-	for {
-		if done {
-			break
-		}
-		select {
-		case buf := <-bufCh:
-			logrus.Debug(string(buf))
-			rw.Write(buf)
-			//io.WriteString(w, string(buf))
-		case <-disconnectNotify:
-			logrus.Debug("disconnectNotify")
-			esr.stop()
-			done = true
-			break
-		case err := <-errCh:
-			logrus.Debug("esReader err")
-			esr.stop()
-			done = true
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			break
-		}
+	cw, ok := w.(http.CloseNotifier)
+	if !ok {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, "Streaming not supported CloseNotifier")
 	}
 
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, "Streaming not supported Flusher")
+		return
+	}
+
+	pingStr := fmt.Sprintf("%x\r\nping", len("ping"))
+	io.WriteString(w, pingStr)
+	flusher.Flush()
+
+	bufCh := make(chan []byte)
+	done := make(chan struct{})
+	esr, errCh := newESReader(done, containerID, startTime, bufCh)
+
+	defer close(done)
+	go esr.start()
+Loop:
+	for {
+		select {
+		case <-time.After(time.Second * 30):
+			logrus.Debugln("break ....")
+			io.WriteString(w, fmt.Sprintf("%x\r\neof", len("eof")))
+			flusher.Flush()
+			break Loop
+		case buf := <-bufCh:
+			io.WriteString(w, fmt.Sprintf("%x\r\n%s", len(buf), buf))
+			flusher.Flush()
+			break
+		case err := <-errCh:
+			logrus.Errorf("es reader err: %v", err)
+			errS := err.Error()
+			io.WriteString(w, fmt.Sprintf("%x\r\n%s", len(errS), fmt.Sprintf("error:%s", errS)))
+			flusher.Flush()
+			break Loop
+		case <-cw.CloseNotify():
+			logrus.Debugln("client disconnect.")
+			break Loop
+		}
+	}
+	logrus.Debugln("log end ======")
 }
+
+// func (a *Api) Log1(w http.ResponseWriter, r *http.Request) {
+
+// 	containerID := mux.Vars(r)["containerID"]
+
+// 	startTime := httplib.GetQueryParam(r, "start_time")
+
+// 	if startTime == "" {
+// 		startTime = "now-5m" // 默认获取 5 分钟以内的
+// 	}
+
+// 	w.Header().Set("Content-Type", "text/plain")
+// 	// Chrome won't show data if we don't set this. See
+// 	// http://stackoverflow.com/questions/26164705/chrome-not-handling-chunked-responses-like-firefox-safari.
+// 	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+// 	rw := streamhttp.StreamingResponseWriter(w)
+// 	defer close(stream.Heartbeat(w, time.Second*25)) // Send a null character every 25 seconds.
+
+// 	disconnectNotify := w.(http.CloseNotifier).CloseNotify()
+// 	bufCh := make(chan []byte)
+// 	//errCh := make(chan error)
+// 	//exitCh := make(chan error)
+
+// 	esr, errCh := newESReader(containerID, startTime, bufCh)
+// 	go esr.start()
+
+// 	done := false
+
+// 	for {
+// 		if done {
+// 			break
+// 		}
+// 		select {
+// 		case buf := <-bufCh:
+// 			logrus.Debug(string(buf))
+// 			rw.Write(buf)
+// 			//io.WriteString(w, string(buf))
+// 		case <-disconnectNotify:
+// 			logrus.Debug("disconnectNotify")
+// 			esr.stop()
+// 			done = true
+// 			break
+// 		case err := <-errCh:
+// 			logrus.Debug("esReader err")
+// 			esr.stop()
+// 			done = true
+// 			http.Error(w, err.Error(), http.StatusInternalServerError)
+// 			break
+// 		}
+// 	}
+
+// }
