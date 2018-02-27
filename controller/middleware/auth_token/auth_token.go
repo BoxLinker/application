@@ -1,13 +1,14 @@
 package auth_token
 
 import (
+	"encoding/json"
 	"net/http"
+	"time"
+
 	"github.com/BoxLinker/boxlinker-api"
 	"github.com/BoxLinker/boxlinker-api/modules/httplib"
-	"time"
-	"encoding/json"
-	"golang.org/x/net/context"
 	"github.com/Sirupsen/logrus"
+	"golang.org/x/net/context"
 )
 
 type AuthTokenRequired struct {
@@ -21,27 +22,27 @@ func NewAuthTokenRequired(url string) *AuthTokenRequired {
 }
 
 type resultAuth struct {
-	Status int `json:"status"`
+	Status  int         `json:"status"`
 	Results interface{} `json:"results"`
-	Msg string `json:"msg"`
+	Msg     string      `json:"msg"`
 }
 
-func (a *AuthTokenRequired) HandlerFuncWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc){
+func (a *AuthTokenRequired) HandlerFuncWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	token := r.Header.Get("X-Access-Token")
 	if token == "" {
 		boxlinker.Resp(w, boxlinker.STATUS_UNAUTHORIZED, nil)
 		return
 	}
 	logrus.Debugf("AuthToken url: %s", a.authUrl)
-	resp, err := httplib.Get(a.authUrl).Header("X-Access-Token", token).SetTimeout(time.Second*3, time.Second*3).Response()
+	resp, err := httplib.Get(a.authUrl).Header("X-Access-Token", token).SetTimeout(time.Second*5, time.Second*3).Response()
 	if err != nil {
 		logrus.Errorf("AuthToken err: %v", err)
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR,nil)
+		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil)
 		return
 	}
 	var result resultAuth
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR,nil, err.Error())
+		boxlinker.Resp(w, boxlinker.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
 	if result.Status == boxlinker.STATUS_OK && next != nil {
@@ -52,4 +53,3 @@ func (a *AuthTokenRequired) HandlerFuncWithNext(w http.ResponseWriter, r *http.R
 		boxlinker.Resp(w, boxlinker.STATUS_UNAUTHORIZED, nil)
 	}
 }
-

@@ -49,15 +49,12 @@ func newESReader(done <-chan struct{}, containerID, startTime string, notify cha
 	}, errCh
 }
 
-// func (r *esReader) stop() {
-// 	r.end = true
-// }
-
 func (r *esReader) start() {
 Loop:
 	for {
 		select {
 		case <-r.done:
+			logrus.Debugln("esReader done ....")
 			break Loop
 		case <-time.After(time.Second):
 			b, err := r.read()
@@ -79,34 +76,6 @@ Loop:
 			}
 			r.notify <- b
 		}
-		// if r.end {
-		// 	break
-		// }
-		// b, err := r.read()
-		// if err != nil {
-		// 	r.errCh <- err
-		// 	break
-		// }
-
-		// // 解析结果，并获取最后一条的时间戳
-		// var result Result
-		// if err := json.Unmarshal(b, &result); err != nil {
-		// 	r.errCh <- err
-		// 	break
-		// }
-		// hits := result.Hits.Hits
-		// if len(hits) <= 0 {
-		// 	time.Sleep(time.Second)
-		// 	continue
-		// }
-		// r.startTime = hits[len(hits)-1].Source.Timestamp
-		// logrus.Debugf("log fetch got hits len: %d", len(hits))
-		// logrus.Println("========")
-		// r.notify <- b
-		// // for _, hit := range hits {
-		// // 	r.notify <- []byte(hit.Source.Log)
-		// // }
-		// time.Sleep(time.Second / 10)
 	}
 }
 
@@ -143,7 +112,7 @@ func (r *esReader) read() ([]byte, error) {
 	// logrus.Debugf("log fetch uri: %s", uri)
 	// logrus.Debugf("log fetch body: %s", body)
 	res, err := httplib.Get(uri).Body(body).SetTimeout(time.Second*10, time.Second*10).Response()
-	// logrus.Debugf("log fetch (%s -> now)", startTime)
+	logrus.Debugf("log fetch (%s -> now)", startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -210,10 +179,11 @@ func (a *Api) Log(w http.ResponseWriter, r *http.Request) {
 
 	defer close(done)
 	go esr.start()
+	tick := time.After(time.Second * 30)
 Loop:
 	for {
 		select {
-		case <-time.After(time.Second * 30):
+		case <-tick:
 			logrus.Debugln("break ....")
 			io.WriteString(w, fmt.Sprintf("%x\r\neof", len("eof")))
 			flusher.Flush()
@@ -235,56 +205,3 @@ Loop:
 	}
 	logrus.Debugln("log end ======")
 }
-
-// func (a *Api) Log1(w http.ResponseWriter, r *http.Request) {
-
-// 	containerID := mux.Vars(r)["containerID"]
-
-// 	startTime := httplib.GetQueryParam(r, "start_time")
-
-// 	if startTime == "" {
-// 		startTime = "now-5m" // 默认获取 5 分钟以内的
-// 	}
-
-// 	w.Header().Set("Content-Type", "text/plain")
-// 	// Chrome won't show data if we don't set this. See
-// 	// http://stackoverflow.com/questions/26164705/chrome-not-handling-chunked-responses-like-firefox-safari.
-// 	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-// 	rw := streamhttp.StreamingResponseWriter(w)
-// 	defer close(stream.Heartbeat(w, time.Second*25)) // Send a null character every 25 seconds.
-
-// 	disconnectNotify := w.(http.CloseNotifier).CloseNotify()
-// 	bufCh := make(chan []byte)
-// 	//errCh := make(chan error)
-// 	//exitCh := make(chan error)
-
-// 	esr, errCh := newESReader(containerID, startTime, bufCh)
-// 	go esr.start()
-
-// 	done := false
-
-// 	for {
-// 		if done {
-// 			break
-// 		}
-// 		select {
-// 		case buf := <-bufCh:
-// 			logrus.Debug(string(buf))
-// 			rw.Write(buf)
-// 			//io.WriteString(w, string(buf))
-// 		case <-disconnectNotify:
-// 			logrus.Debug("disconnectNotify")
-// 			esr.stop()
-// 			done = true
-// 			break
-// 		case err := <-errCh:
-// 			logrus.Debug("esReader err")
-// 			esr.stop()
-// 			done = true
-// 			http.Error(w, err.Error(), http.StatusInternalServerError)
-// 			break
-// 		}
-// 	}
-
-// }

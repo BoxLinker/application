@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -255,6 +256,9 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 	user := a.getUserInfo(r)
 	svcName := mux.Vars(r)["name"]
+	// deployment 里的对应的 container
+	containerName := GetContainerNameFromDeployName(svcName)
+
 	deploy, err := a.clientSet.AppsV1beta1().Deployments(user.Name).Get(svcName, metav1.GetOptions{})
 	if err != nil {
 		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 deploy 失败：%v", err))
@@ -265,23 +269,56 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 	})
 	podsResult := make([]*PodResult, 0)
 	for _, pod := range pods.Items {
-		containers := pod.Status.ContainerStatuses
-		if len(containers) != 1 {
+		containerStatuses := pod.Status.ContainerStatuses
+		// TODO 需要支持多 container 的情况
+		if len(containerStatuses) != 1 {
 			logrus.Errorf("multiple containers found in pod(%s), the container len must be 1.", pod.Name)
 			continue
 		}
-		cont := containers[0]
-		podsResult = append(podsResult, &PodResult{
-			ID:          string(pod.UID),
-			Name:        pod.Name,
-			ContainerID: cont.ContainerID,
-		})
+		podResult := &PodResult{
+			ID:   string(pod.UID),
+			Name: pod.Name,
+		}
+		// 循环 containerStatuses 获取到 svcName 的 containerStatus
+		for _, containerStatus := range containerStatuses {
+			if containerName == containerStatus.Name {
+				state := containerStatus.State
+				if state.Waiting != nil {
+					podResult.Status = &PodStatus{
+						State:   "waiting",
+						Message: state.Waiting.Message,
+						Reason:  state.Waiting.Reason,
+					}
+				}
+				if state.Running != nil {
+					podResult.Status = &PodStatus{
+						State:     "running",
+						StartedAt: state.Running.StartedAt.Time,
+					}
+				}
+				if state.Terminated != nil {
+					podResult.Status = &PodStatus{
+						State:      "terminated",
+						ExitCode:   state.Terminated.ExitCode,
+						Signal:     state.Terminated.Signal,
+						Message:    state.Terminated.Message,
+						Reason:     state.Terminated.Reason,
+						StartedAt:  state.Terminated.StartedAt.Time,
+						FinishedAt: state.Terminated.FinishedAt.Time,
+					}
+					// 只有在 terminated 下才有 container_id
+					podResult.ContainerID = state.Terminated.ContainerID
+				}
+			}
+		}
+		podsResult = append(podsResult, podResult)
 	}
 	if err != nil {
 		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("获取 pod 失败：%v", err))
 		return
 	}
 
+	deployStatus := &deploy.Status
 	containers := deploy.Spec.Template.Spec.Containers
 	if len(containers) != 1 {
 		httplib.Resp(w, httplib.STATUS_FAILED, nil, fmt.Sprintf("deploy %s 的 container 数量不等于 1: %d", svcName, len(containers)))
@@ -293,6 +330,12 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 		Image:  container.Image,
 		Memory: container.Resources.Limits.Memory().String(),
 		Pods:   podsResult,
+		Status: &ServiceStatus{
+			Replicas:            deployStatus.Replicas,
+			AvailableReplicas:   deployStatus.AvailableReplicas,
+			ReadyReplicas:       deployStatus.ReadyReplicas,
+			UnavailableReplicas: deployStatus.UnavailableReplicas,
+		},
 	}
 	portsResult := make([]*PortResult, 0)
 	svc, _ := a.clientSet.CoreV1().Services(user.Name).Get(svcName, metav1.GetOptions{})
@@ -354,17 +397,18 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	listOut := deploys.Items[start:end]
+	b, _ := json.MarshalIndent(listOut, "", "\t")
+	logrus.Debugln(string(b))
 	for _, item := range listOut {
-		deploy := &item //getDeployByName(item.Name, deploys)
 		ing := getIngByName(item.Name, ings)
 		svc := getSvcByName(item.Name, svcs)
 		line := &ServiceForm{
 			Name: item.Name,
 		}
-		containers := deploy.Spec.Template.Spec.Containers
+		containers := item.Spec.Template.Spec.Containers
 		if len(containers) == 0 {
-			httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, "container len 0")
-			return
+			logrus.Warnf("QueryService: deploy %s/%s container len 0", item.ObjectMeta.Namespace, item.ObjectMeta.Name)
+			continue
 		}
 		if len(containers) != 1 {
 			logrus.Warnf("Found Service contains more than one container: (%s)", item.Name)
@@ -519,7 +563,7 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 					ImagePullSecrets: registryKey,
 					Containers: []apiv1.Container{
 						{
-							Name:  fmt.Sprintf("%s-%s", form.Name, "container"),
+							Name:  GetContainerNameFromDeployName(form.Name),
 							Image: form.Image,
 							Ports: ports,
 							Resources: apiv1.ResourceRequirements{

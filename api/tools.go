@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+
 	apiv1 "k8s.io/api/core/v1"
 	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -30,4 +32,8 @@ func FormatServicePort(name, protocol string, port int) apiv1.ServicePort {
 		Protocol: apiv1.ProtocolTCP,
 		Port:     int32(port),
 	}
+}
+
+func GetContainerNameFromDeployName(name string) string {
+	return fmt.Sprintf("%-container", name)
 }

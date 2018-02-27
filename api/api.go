@@ -42,9 +42,9 @@ func NewApi(config ApiConfig) (*Api, error) {
 		prometheusMonitor: config.PrometheusMonitor,
 	}
 	// check PodConfigure
-	if err := aApi.checkPodConfigure(); err != nil {
-		return nil, err
-	}
+	// if err := aApi.checkPodConfigure(); err != nil {
+	// 	return nil, err
+	// }
 	return aApi, nil
 }
 
