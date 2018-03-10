@@ -666,7 +666,7 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	if user.Name == "boxlinker" { // todo 目前只有系统用户，先简单粗暴一下
 		tls = append(tls, extv1beta1.IngressTLS{
 			Hosts:      []string{host},
-			SecretName: "lb-certs",
+			SecretName: "lb-cert",
 		})
 	}
 	ingress := &extv1beta1.Ingress{
