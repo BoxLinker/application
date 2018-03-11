@@ -306,9 +306,12 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 						StartedAt:  state.Terminated.StartedAt.Time,
 						FinishedAt: state.Terminated.FinishedAt.Time,
 					}
-					// 只有在 terminated 下才有 container_id
 					podResult.ContainerID = state.Terminated.ContainerID
 				}
+				if podResult.ContainerID == "" {
+					podResult.ContainerID = containerStatus.ContainerID
+				}
+				logrus.Debugf("containerStatus", containerStatus)
 			}
 		}
 		podsResult = append(podsResult, podResult)

@@ -35,5 +35,5 @@ func FormatServicePort(name, protocol string, port int) apiv1.ServicePort {
 }
 
 func GetContainerNameFromDeployName(name string) string {
-	return fmt.Sprintf("%-container", name)
+	return fmt.Sprintf("%s-container", name)
 }
