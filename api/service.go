@@ -30,13 +30,15 @@ type ServiceHostVolumeForm struct {
 }
 
 type ServiceForm struct {
-	Name        string                   `json:"name"`
-	Image       string                   `json:"image"`
-	Memory      string                   `json:"memory"`
-	CPU         string                   `json:"cpu"`
-	Ports       []*ServicePortForm       `json:"ports"`
-	HostVolumes []*ServiceHostVolumeForm `json:"host_volumes"`
-	Host        string                   `json:"host"`
+	Name         string                   `json:"name"`
+	Image        string                   `json:"image"`
+	Memory       string                   `json:"memory"`
+	CPU          string                   `json:"cpu"`
+	Ports        []*ServicePortForm       `json:"ports"`
+	HostVolumes  []*ServiceHostVolumeForm `json:"host_volumes"`
+	Host         string                   `json:"host"`
+	EnableSSL    bool                     `json:"enable_ssl"`
+	NodeSelector map[string]string        `json:"node_selector"` // k8s node selector
 }
 
 func getDeployByName(name string, list *appsv1beta1.DeploymentList) *appsv1beta1.Deployment {
@@ -549,6 +551,9 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// TODO 校验 nodeSelector
+	nodeSelector := form.NodeSelector
+
 	// create deployment
 	deployment := &appsv1beta1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -564,6 +569,7 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 				},
 				Spec: apiv1.PodSpec{
 					ImagePullSecrets: registryKey,
+					NodeSelector:     nodeSelector,
 					Containers: []apiv1.Container{
 						{
 							Name:  GetContainerNameFromDeployName(form.Name),
@@ -666,7 +672,8 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	tls := make([]extv1beta1.IngressTLS, 0)
-	if user.Name == "boxlinker" { // todo 目前只有系统用户，先简单粗暴一下
+	// 启用 ssl
+	if form.EnableSSL {
 		tls = append(tls, extv1beta1.IngressTLS{
 			Hosts:      []string{host},
 			SecretName: "lb-cert",
