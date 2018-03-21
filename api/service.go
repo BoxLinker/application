@@ -361,6 +361,7 @@ func (a *Api) GetService(w http.ResponseWriter, r *http.Request) {
 			portsResult = append(portsResult, pPortsResult)
 		}
 		result.Host = svc.Annotations["host"]
+		result.OriginHost = svc.Annotations["originHost"]
 	}
 	result.Ports = portsResult
 	httplib.Resp(w, httplib.STATUS_OK, result)
