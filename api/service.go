@@ -610,8 +610,8 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		httplib.Resp(w, httplib.STATUS_OK, nil)
 		return
 	}
-
-	host := fmt.Sprintf("%s-%s.%s.boxlinker.com", user.Name, form.Name, "lb1")
+	originHost := fmt.Sprintf("%s-%s.%s.boxlinker.com", user.Name, form.Name, "lb1")
+	host := originHost
 
 	// todo 需要权限验证
 	if form.Host != "" {
@@ -629,7 +629,8 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: form.Name,
 			Annotations: map[string]string{
-				"host": host,
+				"host":       host,
+				"originHost": originHost,
 			},
 		},
 		Spec: apiv1.ServiceSpec{

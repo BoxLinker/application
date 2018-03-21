@@ -30,13 +30,14 @@ type PodStatus struct {
 }
 
 type ServiceResult struct {
-	Name   string         `json:"name"`
-	Image  string         `json:"image"`
-	Memory string         `json:"memory"`
-	Host   string         `json:"host"`
-	Ports  []*PortResult  `json:"ports"`
-	Pods   []*PodResult   `json:"pods"`
-	Status *ServiceStatus `json:"status"`
+	Name       string         `json:"name"`
+	Image      string         `json:"image"`
+	Memory     string         `json:"memory"`
+	Host       string         `json:"host"`
+	OriginHost string         `json:"origin_host"`
+	Ports      []*PortResult  `json:"ports"`
+	Pods       []*PodResult   `json:"pods"`
+	Status     *ServiceStatus `json:"status"`
 }
 
 type ServiceStatus struct {
