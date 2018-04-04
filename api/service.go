@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -126,7 +125,180 @@ func (a *Api) DeleteService(w http.ResponseWriter, r *http.Request) {
 	httplib.Resp(w, httplib.STATUS_OK, nil)
 }
 
-func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
+func getSvcForm(r *http.Request) (*ServiceForm, error) {
+	form := &ServiceForm{}
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		return nil, err
+	}
+	return form, nil
+}
+
+func (a *Api) UpdateServiceImage(w http.ResponseWriter, r *http.Request) {
+	svcName := mux.Vars(r)["name"]
+	user := a.getUserInfo(r)
+	namespace := user.Name
+	form := &ServiceForm{}
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+		return
+	}
+	if form.Image == "" {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, "镜像不能为空")
+		return
+	}
+	deployOperator := a.clientSet.AppsV1beta1().Deployments(namespace)
+	deploy, err := deployOperator.Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
+		return
+	}
+	var container *apiv1.Container
+	containers := deploy.Spec.Template.Spec.Containers
+	if len(containers) == 1 {
+		container = &containers[0]
+	} else {
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, "container num not eq 1")
+		return
+	}
+	if form.Image == container.Image {
+		httplib.Resp(w, httplib.STATUS_OK, nil)
+		return
+	}
+	logrus.Debugf("Update deploy %s/%s with new image (%s)", user.Name, svcName, form.Image)
+	container.Image = form.Image
+	if _, err := deployOperator.Update(deploy); err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		return
+	}
+	httplib.Resp(w, httplib.STATUS_OK, nil)
+}
+func (a *Api) UpdateServiceHost(w http.ResponseWriter, r *http.Request) {
+	svcName := mux.Vars(r)["name"]
+	user := a.getUserInfo(r)
+	namespace := user.Name
+	form := &ServiceForm{}
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+		return
+	}
+
+	if form.Host == "" {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, "域名不能为空")
+		return
+	}
+	svcOperator := a.clientSet.CoreV1().Services(namespace)
+	svc, err := svcOperator.Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
+		return
+	}
+	if form.Host != svc.Annotations["host"] {
+		if _, ok := svc.Annotations["originHost"]; !ok {
+			svc.Annotations["originHost"] = getOriginHost(namespace, svcName)
+		}
+		svc.Annotations["host"] = form.Host
+		if _, err := svcOperator.Update(svc); err != nil {
+			httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update service (%s/%s) error: %v", namespace, svcName, err))
+			return
+		}
+	}
+
+	httplib.Resp(w, httplib.STATUS_OK, nil)
+
+}
+
+func (a *Api) UpdateServicePorts(w http.ResponseWriter, r *http.Request) {
+	svcName := mux.Vars(r)["name"]
+	user := a.getUserInfo(r)
+	namespace := user.Name
+	form := &ServiceForm{}
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+		return
+	}
+	svcPorts := make([]apiv1.ServicePort, 0)
+	ports := make([]apiv1.ContainerPort, 0)
+	for _, port := range form.Ports {
+		ports = append(ports, FormatContainerPort(port.Name, port.Protocol, port.Port))
+		svcPorts = append(svcPorts, FormatServicePort(port.Name, port.Protocol, port.Port))
+	}
+
+	deployOperator := a.clientSet.AppsV1beta1().Deployments(namespace)
+	deploy, err := deployOperator.Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
+		return
+	}
+	var container *apiv1.Container
+	containers := deploy.Spec.Template.Spec.Containers
+	if len(containers) == 1 {
+		container = &containers[0]
+	} else {
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, "container num not eq 1")
+		return
+	}
+	container.Ports = ports
+	logrus.Debugf("updated deployment (%s/%s) ports: ->\n\t%+v", namespace, svcName, svcPorts)
+	// 处理 deployment
+	if _, err := deployOperator.Update(deploy); err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+		return
+	}
+
+	// update service ports
+	svcOperator := a.clientSet.CoreV1().Services(namespace)
+	svc, err := svcOperator.Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
+		return
+	}
+	svc.Spec.Ports = svcPorts
+	logrus.Debugf("updated service (%s/%s) ports: ->\n\t%+v", namespace, svcName, svcPorts)
+	// 处理 service
+	if _, err := svcOperator.Update(svc); err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update service (%s/%s) error: %v", namespace, svcName, err))
+		return
+	}
+
+	ingOperator := a.clientSet.ExtensionsV1beta1().Ingresses(namespace)
+
+	ing, _ := ingOperator.Get(svcName, metav1.GetOptions{}) // TODO 处理这个 error，因为有可能是获取失败而不是没找到 inggress
+
+	if ing != nil {
+		host := svc.Annotations["host"]
+		paths := make([]extv1beta1.HTTPIngressPath, 0)
+		for _, port := range form.Ports {
+			if port.IsPrivate {
+				continue
+			}
+			paths = append(paths, FormatIngressPath(port.Path, svcName, port.Port))
+		}
+		rules := ing.Spec.Rules
+		if len(rules) > 0 {
+			rule := rules[0]
+			rule.HTTP.Paths = paths
+		} else {
+			rules = append(rules, extv1beta1.IngressRule{
+				Host: host,
+				IngressRuleValue: extv1beta1.IngressRuleValue{
+					HTTP: &extv1beta1.HTTPIngressRuleValue{
+						Paths: paths,
+					},
+				},
+			})
+		}
+		logrus.Debugf("updated ingress (%s/%s) paths: ->\n\t%+v", namespace, svcName, paths)
+		// 处理 ingress
+		if _, err := ingOperator.Update(ing); err != nil {
+			httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update ingress (%s/%s) error: %v", namespace, svcName, err))
+			return
+		}
+	}
+
+	httplib.Resp(w, httplib.STATUS_OK, nil)
+}
+
+func (a *Api) UpdateServiceMemory(w http.ResponseWriter, r *http.Request) {
 	svcName := mux.Vars(r)["name"]
 	user := a.getUserInfo(r)
 	namespace := user.Name
@@ -141,16 +313,57 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
-	svcOperator := a.clientSet.CoreV1().Services(namespace)
-	svc, err := svcOperator.Get(svcName, metav1.GetOptions{})
-	if err != nil {
-		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
+
+	var container *apiv1.Container
+	containers := deploy.Spec.Template.Spec.Containers
+	if len(containers) == 1 {
+		container = &containers[0]
+	} else {
+		httplib.Resp(w, httplib.STATUS_FAILED, nil, "container num not eq 1")
 		return
 	}
-	ingOperator := a.clientSet.ExtensionsV1beta1().Ingresses(namespace)
-	ing, err := ingOperator.Get(svcName, metav1.GetOptions{})
+	// update memory
+	if form.Memory != "" {
+		memory, err := resource.ParseQuantity(form.Memory)
+		if err != nil {
+			httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, fmt.Sprintf("memory param (%s) is invalid", form.Memory))
+			return
+		}
+		logrus.Debugf("Update deploy %s/%s with new memory (%s)", user.Name, svcName, form.Memory)
+		container.Resources.Limits[apiv1.ResourceMemory] = memory
+		container.Resources.Requests[apiv1.ResourceMemory] = memory
+		// 处理 deployment
+		if _, err := deployOperator.Update(deploy); err != nil {
+			httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+			return
+		}
+	}
+	httplib.Resp(w, httplib.STATUS_OK, nil)
+}
+
+func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
+	svcName := mux.Vars(r)["name"]
+	user := a.getUserInfo(r)
+	namespace := user.Name
+	form := &ServiceForm{}
+	if err := httplib.ReadRequestBody(r, form); err != nil {
+		httplib.Resp(w, httplib.STATUS_FORM_VALIDATE_ERR, nil, err.Error())
+		return
+	}
+	// update ports/path
+	svcPorts := make([]apiv1.ServicePort, 0)
+	paths := make([]extv1beta1.HTTPIngressPath, 0)
+	ports := make([]apiv1.ContainerPort, 0)
+	for _, port := range form.Ports {
+		ports = append(ports, FormatContainerPort(port.Name, port.Protocol, port.Port))
+		svcPorts = append(svcPorts, FormatServicePort(port.Name, port.Protocol, port.Port))
+		paths = append(paths, FormatIngressPath(port.Path, svcName, port.Port))
+	}
+
+	deployOperator := a.clientSet.AppsV1beta1().Deployments(namespace)
+	deploy, err := deployOperator.Get(svcName, metav1.GetOptions{})
 	if err != nil {
-		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("ingress not found (%s/%s)", namespace, svcName))
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, err.Error())
 		return
 	}
 
@@ -158,9 +371,7 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 	containers := deploy.Spec.Template.Spec.Containers
 	if len(containers) == 1 {
 		container = &containers[0]
-
 	}
-
 	// update image
 	if form.Image != "" {
 		if form.Image != container.Image {
@@ -168,7 +379,6 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 			container.Image = form.Image
 		}
 	}
-
 	// update memory
 	if form.Memory != "" {
 		memory, err := resource.ParseQuantity(form.Memory)
@@ -180,7 +390,6 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 		container.Resources.Limits[apiv1.ResourceMemory] = memory
 		container.Resources.Requests[apiv1.ResourceMemory] = memory
 	}
-
 	// update cpu
 	if form.CPU != "" {
 		cpu, err := resource.ParseQuantity(form.CPU)
@@ -193,46 +402,47 @@ func (a *Api) UpdateService(w http.ResponseWriter, r *http.Request) {
 		container.Resources.Requests[apiv1.ResourceCPU] = cpu
 	}
 
-	// update ports/path
-	ports := make([]apiv1.ContainerPort, 0)
-	svcPorts := make([]apiv1.ServicePort, 0)
-	paths := make([]extv1beta1.HTTPIngressPath, 0)
-	if len(form.Ports) > 0 {
-		for _, port := range form.Ports {
-			ports = append(ports, FormatContainerPort(port.Name, port.Protocol, port.Port))
-			svcPorts = append(svcPorts, FormatServicePort(port.Name, port.Protocol, port.Port))
-			paths = append(paths, FormatIngressPath(port.Path, svcName, port.Port))
-		}
-		container.Ports = ports
-		logrus.Debugf("updated deployment (%s/%s) ports: ->\n\t%+v", namespace, svcName, svcPorts)
+	container.Ports = ports
+	logrus.Debugf("updated deployment (%s/%s) ports: ->\n\t%+v", namespace, svcName, svcPorts)
 
-		svc.Spec.Ports = svcPorts
-		logrus.Debugf("updated service (%s/%s) ports: ->\n\t%+v", namespace, svcName, svcPorts)
-
-		rules := ing.Spec.Rules
-		if len(rules) > 0 {
-			rule := rules[0]
-			rule.HTTP.Paths = paths
-			logrus.Debugf("updated ingress (%s/%s) paths: ->\n\t%+v", namespace, svcName, paths)
-		}
-	}
-
-	// 处理 ingress
-	if _, err := ingOperator.Update(ing); err != nil {
-		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update ingress (%s/%s) error: %v", namespace, svcName, err))
+	// 处理 deployment
+	if _, err := deployOperator.Update(deploy); err != nil {
+		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
 		return
 	}
 
+	svcOperator := a.clientSet.CoreV1().Services(namespace)
+	svc, err := svcOperator.Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("service not found (%s/%s)", namespace, svcName))
+		return
+	}
+	svc.Spec.Ports = svcPorts
+	logrus.Debugf("updated service (%s/%s) ports: ->\n\t%+v", namespace, svcName, svcPorts)
 	// 处理 service
 	if _, err := svcOperator.Update(svc); err != nil {
 		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update service (%s/%s) error: %v", namespace, svcName, err))
 		return
 	}
 
-	// 处理 deployment
-	if _, err := deployOperator.Update(deploy); err != nil {
-		httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, err.Error())
+	ingOperator := a.clientSet.ExtensionsV1beta1().Ingresses(namespace)
+	ing, err := ingOperator.Get(svcName, metav1.GetOptions{})
+	if err != nil {
+		httplib.Resp(w, httplib.STATUS_NOT_FOUND, nil, fmt.Sprintf("ingress not found (%s/%s)", namespace, svcName))
 		return
+	} else {
+		rules := ing.Spec.Rules
+		if len(rules) > 0 {
+			rule := rules[0]
+			rule.HTTP.Paths = paths
+			logrus.Debugf("updated ingress (%s/%s) paths: ->\n\t%+v", namespace, svcName, paths)
+		}
+
+		// 处理 ingress
+		if _, err := ingOperator.Update(ing); err != nil {
+			httplib.Resp(w, httplib.STATUS_INTERNAL_SERVER_ERR, nil, fmt.Sprintf("update ingress (%s/%s) error: %v", namespace, svcName, err))
+			return
+		}
 	}
 
 	httplib.Resp(w, httplib.STATUS_OK, deploy)
@@ -403,8 +613,6 @@ func (a *Api) QueryService(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	listOut := deploys.Items[start:end]
-	b, _ := json.MarshalIndent(listOut, "", "\t")
-	logrus.Debugln(string(b))
 	for _, item := range listOut {
 		ing := getIngByName(item.Name, ings)
 		svc := getSvcByName(item.Name, svcs)
@@ -611,7 +819,7 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 		httplib.Resp(w, httplib.STATUS_OK, nil)
 		return
 	}
-	originHost := fmt.Sprintf("%s-%s.%s.boxlinker.com", user.Name, form.Name, "lb1")
+	originHost := getOriginHost(user.Name, form.Name)
 	host := originHost
 
 	// todo 需要权限验证
@@ -703,4 +911,8 @@ func (a *Api) CreateService(w http.ResponseWriter, r *http.Request) {
 	logrus.Debugf("Created ingress %q.\n", ing.GetObjectMeta().GetName())
 
 	httplib.Resp(w, httplib.STATUS_OK, nil)
+}
+
+func getOriginHost(username, svcName string) string {
+	return fmt.Sprintf("%s-%s.%s.boxlinker.com", username, svcName, "lb1")
 }

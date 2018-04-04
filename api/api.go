@@ -117,6 +117,10 @@ func (a *Api) Run() error {
 	serviceRouter.HandleFunc("/v1/application/auth/service", a.QueryService).Methods("GET")
 	serviceRouter.HandleFunc("/v1/application/auth/service/{name}", a.GetService).Methods("GET")
 	serviceRouter.HandleFunc("/v1/application/auth/service/{name}", a.UpdateService).Methods("PUT")
+	serviceRouter.HandleFunc("/v1/application/auth/service/{name}/image", a.UpdateServiceImage).Methods("PUT")
+	serviceRouter.HandleFunc("/v1/application/auth/service/{name}/memory", a.UpdateServiceMemory).Methods("PUT")
+	serviceRouter.HandleFunc("/v1/application/auth/service/{name}/ports", a.UpdateServicePorts).Methods("PUT")
+	serviceRouter.HandleFunc("/v1/application/auth/service/{name}/host", a.UpdateServiceHost).Methods("PUT")
 	serviceRouter.HandleFunc("/v1/application/auth/service/{name}", a.DeleteService).Methods("DELETE")
 	serviceRouter.HandleFunc("/v1/application/auth/service/{name}/exists", a.IsServiceExist).Methods("GET")
 
